@@ -1,0 +1,48 @@
+# Dependencies
+/vendor/
+/node_modules/
+
+# IDE and Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+/logs/*.log
+*.log
+
+# Uploads and temporary files
+/uploads/*
+!/uploads/.gitkeep
+/data/temp/
+*.tmp
+
+# Environment and config files (if they contain sensitive data)
+# config/database.php (uncomment if it contains sensitive credentials)
+
+# Composer
+composer.phar
+
+# Test files (optional - you might want to keep these)
+test_*.php
+debug_*.php
+minimal_*.php
+clean_*.php
+
+# Kiro IDE files (optional - you might want to keep the specs)
+# .kiro/
+
+# Cache and session files
+/cache/
+/sessions/

@@ -1,0 +1,82 @@
+[
+    {
+        "id": "68df8b777a95e",
+        "filename": "2025-10-03_10-38-15_68df8b77796d7.jpg",
+        "filepath": "uploads\/captures\/2025-10-03_10-38-15_68df8b77796d7.jpg",
+        "image_info": {
+            "width": 640,
+            "height": 480,
+            "type": "image\/png",
+            "size": 462489,
+            "created": "2025-10-03 10:38:15"
+        },
+        "arduino_data": {
+            "temperature": "30.7",
+            "humidity": "42.4",
+            "lightLevel": "1008",
+            "motion": "No",
+            "timestamp": "2025-10-03T08:38:15.469Z"
+        },
+        "timestamp": "2025-10-03 10:38:15"
+    },
+    {
+        "id": "68df8b7dabc13",
+        "filename": "2025-10-03_10-38-21_68df8b7dab858.jpg",
+        "filepath": "uploads\/captures\/2025-10-03_10-38-21_68df8b7dab858.jpg",
+        "image_info": {
+            "width": 640,
+            "height": 480,
+            "type": "image\/png",
+            "size": 463621,
+            "created": "2025-10-03 10:38:21"
+        },
+        "arduino_data": {
+            "temperature": "24.5",
+            "humidity": "78.8",
+            "lightLevel": "154",
+            "motion": "No",
+            "timestamp": "2025-10-03T08:38:21.675Z"
+        },
+        "timestamp": "2025-10-03 10:38:21"
+    },
+    {
+        "id": "68df8bc217f49",
+        "filename": "2025-10-03_10-39-30_68df8bc21707d.jpg",
+        "filepath": "uploads\/captures\/2025-10-03_10-39-30_68df8bc21707d.jpg",
+        "image_info": {
+            "width": 640,
+            "height": 480,
+            "type": "image\/png",
+            "size": 456643,
+            "created": "2025-10-03 10:39:30"
+        },
+        "arduino_data": {
+            "temperature": "34.1",
+            "humidity": "45.7",
+            "lightLevel": "770",
+            "motion": "No",
+            "timestamp": "2025-10-03T08:39:30.072Z"
+        },
+        "timestamp": "2025-10-03 10:39:30"
+    },
+    {
+        "id": "68df8c10077e3",
+        "filename": "2025-10-03_10-40-48_68df8c1007384.jpg",
+        "filepath": "uploads\/captures\/2025-10-03_10-40-48_68df8c1007384.jpg",
+        "image_info": {
+            "width": 640,
+            "height": 480,
+            "type": "image\/png",
+            "size": 462699,
+            "created": "2025-10-03 10:40:48"
+        },
+        "arduino_data": {
+            "temperature": "26.5",
+            "humidity": "68.5",
+            "lightLevel": "896",
+            "motion": "No",
+            "timestamp": "2025-10-03T08:40:48.007Z"
+        },
+        "timestamp": "2025-10-03 10:40:48"
+    }
+]
