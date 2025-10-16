@@ -473,6 +473,13 @@ $additionalJS = $additionalJS ?? [];
     }
     ?>
     
+    <!-- Include chatbot system -->
+    <?php 
+    if (file_exists('includes/chatbot.php')) {
+        require_once 'includes/chatbot.php';
+    }
+    ?>
+    
     <!-- Performance and Analytics -->
     <script>
         // Performance monitoring

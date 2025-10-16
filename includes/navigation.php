@@ -7,8 +7,9 @@
  * professional design patterns, and enhanced UX
  */
 
-// Include design system
+// Include design system and language support
 require_once 'includes/design-system.php';
+require_once 'includes/language.php';
 
 // Ensure user is logged in before showing navigation
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
@@ -58,13 +59,6 @@ $navigationSections = [
                 'url' => 'pest_detection.php',
                 'roles' => ['admin', 'farmer', 'student'],
                 'description' => 'AI-powered pest monitoring'
-            ],
-            'camera_management' => [
-                'title' => 'Camera Management',
-                'icon' => 'fas fa-video',
-                'url' => 'camera_management.php',
-                'roles' => ['admin', 'farmer'],
-                'description' => 'Configure detection cameras'
             ],
             'notifications' => [
                 'title' => 'Notifications',

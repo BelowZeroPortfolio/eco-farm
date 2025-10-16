@@ -24,9 +24,19 @@ CREATE TABLE IF NOT EXISTS sensors (
     sensor_name VARCHAR(100) NOT NULL,
     sensor_type ENUM('temperature', 'humidity', 'soil_moisture') NOT NULL,
     location VARCHAR(100) NOT NULL,
-    status ENUM('online', 'offline') DEFAULT 'online',
+    arduino_pin INT NOT NULL,
+    sensor_id VARCHAR(50),
+    calibration_offset DECIMAL(10,4) DEFAULT 0.0000,
+    alert_threshold_min DECIMAL(10,2) NULL,
+    alert_threshold_max DECIMAL(10,2) NULL,
+    status ENUM('online', 'offline', 'error') DEFAULT 'offline',
+    last_reading_at TIMESTAMP NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_arduino_pin (arduino_pin),
+    INDEX idx_sensor_type (sensor_type),
+    INDEX idx_status (status),
+    UNIQUE KEY unique_active_pin (arduino_pin, status)
 );
 
 -- Sensor readings table for historical data

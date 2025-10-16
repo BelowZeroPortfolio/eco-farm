@@ -9,6 +9,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/language.php';
 
 $currentUser = [
     'id' => $_SESSION['user_id'],
@@ -86,6 +87,21 @@ $pageTitle = 'Dashboard - IoT Farm Monitoring System';
 
 // Include shared header
 include 'includes/header.php';
+
+// Add language support JavaScript
+$currentLanguage = getCurrentLanguage();
+$translations = getTranslations();
+$jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
+?>
+
+<script>
+    // Initialize language system for this page
+    const pageLanguage = '<?php echo $currentLanguage; ?>';
+    const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
+</script>
+<script src="includes/language.js"></script>
+
+<?php
 ?>
 <?php
 // Include shared navigation component (sidebar)
@@ -94,58 +110,49 @@ include 'includes/navigation.php';
 
 <!-- Dashboard Content -->
 <div class="p-4 max-w-7xl mx-auto">
-    
+
     <!-- Stats Cards -->
-    <div class="grid grid-cols-2 lg:grid-cols-6 gap-3 mb-4">
+    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <!-- Total Sensors -->
         <div class="bg-green-600 text-white rounded-xl p-3">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-white/80 text-xs font-medium">Sensors</h3>
+                <h3 class="text-white/80 text-xs font-medium" data-translate="temperature">Temperature</h3>
                 <i class="fas fa-thermometer-half text-xs"></i>
             </div>
-            <div class="text-xl font-bold">9</div>
-            <div class="text-white/80 text-xs">Total</div>
+            <div class="text-xl font-bold">30</div>
+            <div class="text-white/80 text-xs">Online</div>
         </div>
 
-        <!-- Active Cameras -->
+        <!-- Humidity -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Cameras</h3>
+                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Humidity</h3>
                 <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-xs"></i>
             </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">3</div>
-            <div class="text-green-600 text-xs">Online</div>
+            <div class="text-xl font-bold text-gray-900 dark:text-white">30</div>
+            <div class="text-green-600 text-xs" data-translate="online">Online</div>
         </div>
 
-        <!-- Pest Alerts -->
+        <!-- Soil Moisture -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Alerts</h3>
+                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium" data-translate="Soil Moisture">Soil Moisture</h3>
                 <i class="fas fa-bug text-yellow-600 dark:text-yellow-400 text-xs"></i>
             </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">0</div>
-            <div class="text-green-600 text-xs">Today</div>
+            <div class="text-xl font-bold text-gray-900 dark:text-white">30</div>
+            <div class="text-green-600 text-xs" data-translate="online">Online</div>
         </div>
 
         <!-- Reports -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Reports</h3>
+                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium" data-translate="reports">Reports</h3>
                 <i class="fas fa-chart-bar text-blue-600 dark:text-blue-400 text-xs"></i>
             </div>
             <div class="text-xl font-bold text-gray-900 dark:text-white">12</div>
             <div class="text-gray-500 text-xs">Generated</div>
         </div>
 
-        <!-- System Health -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
-            <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Health</h3>
-                <i class="fas fa-heartbeat text-green-600 dark:text-green-400 text-xs"></i>
-            </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">100%</div>
-            <div class="text-green-600 text-xs">Optimal</div>
-        </div>
 
         <!-- Live Time -->
         <div class="bg-gray-900 dark:bg-white border border-gray-800 dark:border-gray-200 rounded-xl p-3 relative overflow-hidden">
@@ -203,11 +210,11 @@ include 'includes/navigation.php';
             <!-- Sensor Analytics -->
             <div class="bg-gray-900 dark:bg-white border border-gray-800 dark:border-gray-200 rounded-xl p-4">
                 <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-white dark:text-gray-900">Sensor Analytics</h3>
+                    <h3 class="text-sm font-semibold text-white dark:text-gray-900" data-translate="sensor_data">Sensor Analytics</h3>
                     <select id="sensor-type-select" class="bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-900 text-xs border border-gray-700 dark:border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-500">
-                        <option value="temperature">Temperature</option>
-                        <option value="humidity">Humidity</option>
-                        <option value="soil_moisture">Soil Moisture</option>
+                        <option value="temperature" data-translate="temperature">Temperature</option>
+                        <option value="humidity" data-translate="humidity">Humidity</option>
+                        <option value="soil_moisture" data-translate="soil_moisture">Soil Moisture</option>
                     </select>
                 </div>
                 <div class="flex items-end justify-between h-24 mb-3" id="chart-container">
@@ -215,7 +222,7 @@ include 'includes/navigation.php';
                 </div>
                 <div class="flex items-center justify-between text-xs text-gray-300 dark:text-gray-600">
                     <span id="chart-label">Temperature (°C)</span>
-                    <span>This week</span>
+                    <span data-translate="this_week">This week</span>
                 </div>
             </div>
 
@@ -316,37 +323,9 @@ include 'includes/navigation.php';
                 });
             </script>
 
-            <!-- Recent Sensor Readings -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Recent Readings</h3>
-                    <a href="sensors.php" class="text-green-600 hover:text-green-700 text-xs font-medium">View All</a>
-                </div>
-                <div class="space-y-2">
-                    <?php
-                    $sensorIcons = [
-                        'temperature' => ['icon' => 'fa-thermometer-half', 'color' => 'red'],
-                        'humidity' => ['icon' => 'fa-tint', 'color' => 'blue'],
-                        'soil_moisture' => ['icon' => 'fa-seedling', 'color' => 'green']
-                    ];
-
-                    foreach ($sensorReadings as $reading): ?>
-                        <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                            <div class="flex items-center gap-2">
-                                <div class="w-6 h-6 bg-<?php echo $sensorIcons[$reading['sensor_type']]['color']; ?>-100 dark:bg-<?php echo $sensorIcons[$reading['sensor_type']]['color']; ?>-900 rounded flex items-center justify-center">
-                                    <i class="fas <?php echo $sensorIcons[$reading['sensor_type']]['icon']; ?> text-<?php echo $sensorIcons[$reading['sensor_type']]['color']; ?>-600 dark:text-<?php echo $sensorIcons[$reading['sensor_type']]['color']; ?>-400 text-xs"></i>
-                                </div>
-                                <span class="text-xs font-medium text-gray-900 dark:text-white"><?php echo ucfirst(str_replace('_', ' ', $reading['sensor_type'])); ?></span>
-                            </div>
-                            <span class="text-xs font-bold text-gray-900 dark:text-white"><?php echo number_format($reading['avg_value'], 1) . $reading['unit']; ?></span>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-            </div>
-
             <!-- Quick Actions -->
             <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h3>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4" data-translate="quick_actions">Quick Actions</h3>
                 <div class="grid grid-cols-2 gap-3">
                     <a href="sensors.php" class="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg text-center hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group">
                         <div class="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
@@ -384,13 +363,13 @@ include 'includes/navigation.php';
         <div class="space-y-4">
             <!-- Current Conditions -->
             <div class="bg-green-600 text-white rounded-xl p-4">
-                <h3 class="text-white/80 text-xs font-medium mb-2">Live Conditions</h3>
+                <h3 class="text-white/80 text-xs font-medium mb-2" data-translate="live_conditions">Live Conditions</h3>
                 <div class="text-center">
-                    <div class="text-2xl font-bold mb-1">24.5°C</div>
-                    <div class="text-white/80 text-xs mb-2">Temperature</div>
+                    <div class="text-2xl font-bold mb-1"><?php echo $sensorReadings[0]['avg_value']; ?>°C</div>
+                    <div class="text-white/80 text-xs mb-2" data-translate="temperature">Temperature</div>
                     <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div>Humidity: 68%</div>
-                        <div>Soil: 46%</div>
+                        <div><span data-translate="humidity">Humidity</span>: <?php echo $sensorReadings[1]['avg_value']; ?>%</div>
+                        <div>Soil: <?php echo $sensorReadings[2]['avg_value']; ?>%</div>
                     </div>
                 </div>
             </div>
@@ -398,7 +377,7 @@ include 'includes/navigation.php';
             <!-- Pest Detection -->
             <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
                 <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Pest Detection</h3>
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white" data-translate="pest_detection">Pest Detection</h3>
                     <a href="pest_detection.php" class="text-green-600 hover:text-green-700 text-xs font-medium">View</a>
                 </div>
                 <div class="text-center py-4">
@@ -437,45 +416,14 @@ include 'includes/navigation.php';
                     </button>
                 </div>
             </div>
-
-            <!-- System Health -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">System Health</h3>
-                <div class="relative w-20 h-20 mx-auto mb-3">
-                    <svg class="w-20 h-20 transform -rotate-90" viewBox="0 0 36 36">
-                        <path class="text-gray-200 dark:text-gray-700" stroke="currentColor" stroke-width="3" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-                        <path class="text-green-600 dark:text-green-400" stroke="currentColor" stroke-width="3" fill="none" stroke-dasharray="100, 100" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"></path>
-                    </svg>
-                    <div class="absolute inset-0 flex items-center justify-center">
-                        <div class="text-center">
-                            <div class="text-lg font-bold text-gray-900 dark:text-white">100%</div>
-                            <div class="text-xs text-gray-600 dark:text-gray-400">Optimal</div>
-                        </div>
-                    </div>
-                </div>
-                <div class="space-y-1">
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span class="text-xs text-gray-600 dark:text-gray-400">All Systems Online</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                        <span class="text-xs text-gray-600 dark:text-gray-400">Data Collection Active</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <div class="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                        <span class="text-xs text-gray-600 dark:text-gray-400">Maintenance Due Soon</span>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
 
     <!-- Additional Content Row to Fill Space -->
-    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4 mt-4">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
         <!-- Recent Activity -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Recent Activity</h3>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3" data-translate="recent_activity">Recent Activity</h3>
             <div class="space-y-2">
                 <div class="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div class="w-6 h-6 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center">
@@ -519,8 +467,8 @@ include 'includes/navigation.php';
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
                 <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                    <p class="text-gray-600 dark:text-gray-400">Humidity</p>
-                    <p class="font-bold text-gray-900 dark:text-white">72%</p>
+                    <p class="text-gray-600 dark:text-gray-400">Change of Raining</p>
+                    <p class="font-bold text-gray-900 dark:text-white">40%</p>
                 </div>
                 <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
                     <p class="text-gray-600 dark:text-gray-400">Wind</p>
@@ -529,73 +477,45 @@ include 'includes/navigation.php';
             </div>
         </div>
 
-        <!-- Storage Usage -->
+        <!-- Farm Statistics -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Storage</h3>
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Farm Statistics</h3>
             <div class="space-y-3">
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-gray-600 dark:text-gray-400">Sensor Data</span>
-                        <span class="text-gray-900 dark:text-white">2.4 GB</span>
-                    </div>
-                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div class="bg-green-600 h-2 rounded-full" style="width: 60%"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-gray-600 dark:text-gray-400">Camera Footage</span>
-                        <span class="text-gray-900 dark:text-white">8.1 GB</span>
-                    </div>
-                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div class="bg-blue-600 h-2 rounded-full" style="width: 80%"></div>
-                    </div>
-                </div>
-                <div>
-                    <div class="flex justify-between text-xs mb-1">
-                        <span class="text-gray-600 dark:text-gray-400">Reports</span>
-                        <span class="text-gray-900 dark:text-white">156 MB</span>
-                    </div>
-                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                        <div class="bg-purple-600 h-2 rounded-full" style="width: 15%"></div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Camera Status -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <div class="flex items-center justify-between mb-3">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Camera Status</h3>
-                <a href="camera_management.php" class="text-green-600 hover:text-green-700 text-xs font-medium">Manage</a>
-            </div>
-            <div class="space-y-2">
                 <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-purple-100 dark:bg-purple-900 rounded flex items-center justify-center">
-                            <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-xs"></i>
+                        <div class="w-6 h-6 bg-green-100 dark:bg-green-900 rounded flex items-center justify-center">
+                            <i class="fas fa-leaf text-green-600 dark:text-green-400 text-xs"></i>
                         </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Greenhouse Cam 1</span>
+                        <span class="text-xs font-medium text-gray-900 dark:text-white">Crop Health</span>
                     </div>
-                    <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">Online</span>
+                    <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">Excellent</span>
+                </div>
+                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 h-6 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center">
+                            <i class="fas fa-tint text-blue-600 dark:text-blue-400 text-xs"></i>
+                        </div>
+                        <span class="text-xs font-medium text-gray-900 dark:text-white">Irrigation Status</span>
+                    </div>
+                    <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium rounded-full">Active</span>
+                </div>
+                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div class="flex items-center gap-2">
+                        <div class="w-6 h-6 bg-yellow-100 dark:bg-yellow-900 rounded flex items-center justify-center">
+                            <i class="fas fa-seedling text-yellow-600 dark:text-yellow-400 text-xs"></i>
+                        </div>
+                        <span class="text-xs font-medium text-gray-900 dark:text-white">Growth Stage</span>
+                    </div>
+                    <span class="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs font-medium rounded-full">Flowering</span>
                 </div>
                 <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
                     <div class="flex items-center gap-2">
                         <div class="w-6 h-6 bg-purple-100 dark:bg-purple-900 rounded flex items-center justify-center">
-                            <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-xs"></i>
+                            <i class="fas fa-calendar text-purple-600 dark:text-purple-400 text-xs"></i>
                         </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Field Monitor</span>
+                        <span class="text-xs font-medium text-gray-900 dark:text-white">Days to Harvest</span>
                     </div>
-                    <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">Recording</span>
-                </div>
-                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-purple-100 dark:bg-purple-900 rounded flex items-center justify-center">
-                            <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-xs"></i>
-                        </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Irrigation Cam</span>
-                    </div>
-                    <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">Active</span>
+                    <span class="text-xs font-bold text-gray-900 dark:text-white">45 days</span>
                 </div>
             </div>
         </div>

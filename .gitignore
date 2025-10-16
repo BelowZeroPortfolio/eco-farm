@@ -1,6 +1,7 @@
 # Dependencies
 /vendor/
 /node_modules/
+composer.phar
 
 # IDE and Editor files
 .vscode/
@@ -18,31 +19,66 @@
 ehthumbs.db
 Thumbs.db
 
-# Logs
+# Logs and debugging
 /logs/*.log
 *.log
+error.log
+debug.log
 
-# Uploads and temporary files
+# Uploads and user-generated content
 /uploads/*
 !/uploads/.gitkeep
+/uploads/images/*
+/uploads/documents/*
+/uploads/exports/*
+
+# Data and temporary files
 /data/temp/
+/data/cache/
+/data/exports/
+/data/backups/
 *.tmp
+*.temp
 
-# Environment and config files (if they contain sensitive data)
-# config/database.php (uncomment if it contains sensitive credentials)
+# Environment and sensitive config files
+config/database.php
+config/secrets.php
+.env
+.env.local
+.env.production
 
-# Composer
-composer.phar
+# Camera and sensor data
+/data/camera_records_backup.json
+/data/sensor_readings/
+/data/camera_snapshots/
 
-# Test files (optional - you might want to keep these)
+# Export files (generated reports)
+exports/
+*.csv
+*.pdf
+*.xlsx
+
+# Test and debug files
 test_*.php
 debug_*.php
 minimal_*.php
 clean_*.php
-
-# Kiro IDE files (optional - you might want to keep the specs)
-# .kiro/
+*_test.php
 
 # Cache and session files
 /cache/
 /sessions/
+/tmp/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# PHP specific
+*.php~
+.phpunit.result.cache
+
+# Kiro IDE files (keep specs but ignore temp files)
+.kiro/temp/
+.kiro/cache/

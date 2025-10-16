@@ -17,13 +17,13 @@ class SecurityConfig
     const SESSION_TIMEOUT = 3600; // 1 hour
     const SESSION_REGENERATE_INTERVAL = 300; // 5 minutes
     const SESSION_NAME = 'FARM_MONITOR_SESSION';
-    
+
     /**
      * CSRF protection settings
      */
     const CSRF_TOKEN_LIFETIME = 3600; // 1 hour
     const CSRF_TOKEN_LENGTH = 32; // bytes
-    
+
     /**
      * Rate limiting settings
      */
@@ -33,7 +33,7 @@ class SecurityConfig
     const RATE_LIMIT_PAGE_WINDOW = 60; // 1 minute
     const RATE_LIMIT_FORM_SUBMISSIONS = 10;
     const RATE_LIMIT_FORM_WINDOW = 60; // 1 minute
-    
+
     /**
      * File upload security settings
      */
@@ -41,7 +41,7 @@ class SecurityConfig
     const ALLOWED_FILE_TYPES = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'csv', 'xlsx'];
     const ALLOWED_MIME_TYPES = [
         'image/jpeg',
-        'image/png', 
+        'image/png',
         'image/gif',
         'application/pdf',
         'text/csv',
@@ -49,14 +49,14 @@ class SecurityConfig
         'application/vnd.ms-excel',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     ];
-    
+
     /**
      * Password security settings
      */
     const MIN_PASSWORD_LENGTH = 6;
     const PASSWORD_HASH_ALGORITHM = PASSWORD_DEFAULT;
     const PASSWORD_HASH_OPTIONS = ['cost' => 12];
-    
+
     /**
      * Input validation limits
      */
@@ -65,7 +65,7 @@ class SecurityConfig
     const MAX_EMAIL_LENGTH = 100;
     const MAX_INPUT_LENGTH = 1000;
     const MAX_TEXTAREA_LENGTH = 5000;
-    
+
     /**
      * Security headers configuration
      */
@@ -80,7 +80,7 @@ class SecurityConfig
             'Strict-Transport-Security' => 'max-age=31536000; includeSubDomains'
         ];
     }
-    
+
     /**
      * Content Security Policy configuration
      */
@@ -98,7 +98,7 @@ class SecurityConfig
             "form-action 'self'"
         ];
     }
-    
+
     /**
      * Page access permissions
      */
@@ -118,7 +118,7 @@ class SecurityConfig
             'index.php' => ['*'] // Public access
         ];
     }
-    
+
     /**
      * Feature permissions
      */
@@ -137,7 +137,7 @@ class SecurityConfig
             'view_notifications' => ['admin', 'farmer', 'student']
         ];
     }
-    
+
     /**
      * Suspicious activity patterns
      */
@@ -148,7 +148,7 @@ class SecurityConfig
             '/\b(union|select|insert|update|delete|drop|create|alter|exec)\b/i',
             '/(\%27)|(\')|(\-\-)|(\%23)|(#)/i',
             '/(\%3D)|(=)[^\n]*((\%27)|(\')|(\-\-)|(\%3B)|(;))/i',
-            
+
             // XSS patterns
             '/<script[^>]*>.*?<\/script>/i',
             '/javascript:/i',
@@ -157,20 +157,20 @@ class SecurityConfig
             '/onerror\s*=/i',
             '/onclick\s*=/i',
             '/onmouseover\s*=/i',
-            
+
             // Path traversal patterns
             '/\.\.\//i',
             '/\.\.\\\/i',
             '/etc\/passwd/i',
             '/proc\/self\/environ/i',
             '/windows\/system32/i',
-            
+
             // Command injection patterns
             '/;\s*(ls|cat|pwd|id|whoami|uname)/i',
             '/\|\s*(ls|cat|pwd|id|whoami|uname)/i',
             '/`[^`]*`/i',
             '/\$\([^)]*\)/i',
-            
+
             // File inclusion patterns
             '/php:\/\/input/i',
             '/php:\/\/filter/i',
@@ -178,7 +178,7 @@ class SecurityConfig
             '/file:\/\//i'
         ];
     }
-    
+
     /**
      * Blocked user agents (bots, scanners, etc.)
      */
@@ -197,7 +197,7 @@ class SecurityConfig
             '/w3af/i'
         ];
     }
-    
+
     /**
      * Trusted IP ranges (for admin access, etc.)
      */
@@ -211,7 +211,7 @@ class SecurityConfig
             // '10.0.0.0/8'
         ];
     }
-    
+
     /**
      * Security event types for logging
      */
@@ -234,7 +234,7 @@ class SecurityConfig
             'path_traversal_attempt'
         ];
     }
-    
+
     /**
      * Get security setting by key
      */
@@ -250,26 +250,26 @@ class SecurityConfig
             'min_username_length' => self::MIN_USERNAME_LENGTH,
             'max_email_length' => self::MAX_EMAIL_LENGTH
         ];
-        
+
         return $settings[$key] ?? $default;
     }
-    
+
     /**
      * Check if IP is in trusted range
      */
     public static function isTrustedIP($ip)
     {
         $trustedRanges = self::getTrustedIPRanges();
-        
+
         foreach ($trustedRanges as $range) {
             if (self::ipInRange($ip, $range)) {
                 return true;
             }
         }
-        
+
         return false;
     }
-    
+
     /**
      * Check if IP is in range
      */
@@ -279,10 +279,10 @@ class SecurityConfig
             // Single IP
             return $ip === $range;
         }
-        
+
         // CIDR range
         list($subnet, $mask) = explode('/', $range);
-        
+
         if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
             // IPv4
             return (ip2long($ip) & ~((1 << (32 - $mask)) - 1)) === ip2long($subnet);
@@ -290,36 +290,36 @@ class SecurityConfig
             // IPv6 - simplified check
             return strpos($ip, substr($subnet, 0, strpos($subnet, '::', -4))) === 0;
         }
-        
+
         return false;
     }
-    
+
     /**
      * Validate security configuration
      */
     public static function validateConfig()
     {
         $errors = [];
-        
+
         // Check session settings
         if (self::SESSION_TIMEOUT < 300) {
             $errors[] = 'Session timeout too short (minimum 5 minutes)';
         }
-        
+
         if (self::SESSION_REGENERATE_INTERVAL > self::SESSION_TIMEOUT) {
             $errors[] = 'Session regenerate interval cannot be longer than session timeout';
         }
-        
+
         // Check password settings
         if (self::MIN_PASSWORD_LENGTH < 6) {
             $errors[] = 'Minimum password length too short (minimum 6 characters)';
         }
-        
+
         // Check file upload settings
         if (self::MAX_FILE_SIZE > 10485760) { // 10MB
             $errors[] = 'Maximum file size too large (maximum 10MB recommended)';
         }
-        
+
         return $errors;
     }
 }

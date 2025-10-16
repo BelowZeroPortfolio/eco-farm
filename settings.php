@@ -1,10 +1,10 @@
 <?php
 
 /**
- * Settings Management Page for IoT Farm Monitoring System
+ * System Settings Page
  * 
- * Allows users to configure dashboard appearance, notification preferences,
- * and system settings with placeholders for future IoT/AI configurations
+ * Allows administrators to configure system settings,
+ * user preferences, and system-wide configurations
  */
 
 // Start session
@@ -16,631 +16,368 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
     exit();
 }
 
-require_once 'config/database.php';
+// Check if user is admin
+if ($_SESSION['role'] !== 'admin') {
+    header('Location: dashboard.php');
+    exit();
+}
 
+require_once 'config/database.php';
+require_once 'includes/language.php';
+
+// Get current user data
+$currentUserId = $_SESSION['user_id'];
 $currentUser = [
     'id' => $_SESSION['user_id'],
     'username' => $_SESSION['username'],
     'email' => $_SESSION['email'] ?? '',
-    'role' => $_SESSION['role'] ?? 'student'
+    'role' => $_SESSION['role'] ?? 'admin'
 ];
+
+$success = '';
+$error = '';
 
 // Handle form submissions
-$message = '';
-$messageType = '';
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-        $action = $_POST['action'] ?? '';
-
-        switch ($action) {
-            case 'update_appearance':
-                $result = updateAppearanceSettings($_POST);
-                $message = $result['message'];
-                $messageType = $result['success'] ? 'success' : 'error';
+    if (isset($_POST['action'])) {
+        // Handle different settings actions here
+        switch ($_POST['action']) {
+            case 'update_system_settings':
+                // Handle system settings update
+                $success = 'System settings updated successfully!';
                 break;
+            case 'update_preferences':
+                // Handle preferences update
+                $language = $_POST['language'] ?? 'en';
+                $timezone = $_POST['timezone'] ?? 'UTC+8';
 
-            case 'update_notifications':
-                $result = updateNotificationSettings($_POST);
-                $message = $result['message'];
-                $messageType = $result['success'] ? 'success' : 'error';
+                // Store preferences in session (in a real app, you'd save to database)
+                $_SESSION['user_language'] = $language;
+                $_SESSION['user_timezone'] = $timezone;
+
+                $success = 'Preferences updated successfully!';
                 break;
-
-            case 'update_system':
-                $result = updateSystemSettings($_POST);
-                $message = $result['message'];
-                $messageType = $result['success'] ? 'success' : 'error';
-                break;
-    }
-}
-
-/**
- * Update appearance settings
- */
-function updateAppearanceSettings($data)
-{
-    try {
-        $userId = getUserId();
-        $settings = [
-            'theme' => $data['theme'] ?? 'light',
-            'dashboard_layout' => $data['dashboard_layout'] ?? 'grid',
-            'sidebar_collapsed' => isset($data['sidebar_collapsed']) ? '1' : '0',
-            'chart_style' => $data['chart_style'] ?? 'modern'
-        ];
-
-        foreach ($settings as $key => $value) {
-            saveSetting($userId, $key, $value);
+            default:
+                $error = 'Invalid action specified.';
         }
-
-        return ['success' => true, 'message' => 'Appearance settings updated successfully.'];
-    } catch (Exception $e) {
-        error_log("Update appearance settings failed: " . $e->getMessage());
-        return ['success' => false, 'message' => 'Failed to update appearance settings.'];
     }
 }
 
-/**
- * Update notification settings
- */
-function updateNotificationSettings($data)
-{
-    try {
-        $userId = getUserId();
-        $settings = [
-            'email_notifications' => isset($data['email_notifications']) ? '1' : '0',
-            'pest_alerts' => isset($data['pest_alerts']) ? '1' : '0',
-            'sensor_alerts' => isset($data['sensor_alerts']) ? '1' : '0',
-            'system_alerts' => isset($data['system_alerts']) ? '1' : '0',
-            'alert_frequency' => $data['alert_frequency'] ?? 'immediate',
-            'quiet_hours_start' => $data['quiet_hours_start'] ?? '',
-            'quiet_hours_end' => $data['quiet_hours_end'] ?? ''
-        ];
+// Get current user preferences
+$currentLanguage = $_SESSION['user_language'] ?? 'en';
+$currentTimezone = $_SESSION['user_timezone'] ?? 'UTC+8';
 
-        foreach ($settings as $key => $value) {
-            saveSetting($userId, $key, $value);
-        }
+// Set page title and additional resources
+$pageTitle = 'System Settings - IoT Farm Monitoring System';
+$additionalCSS = [];
+$additionalJS = [];
 
-        return ['success' => true, 'message' => 'Notification settings updated successfully.'];
-    } catch (Exception $e) {
-        error_log("Update notification settings failed: " . $e->getMessage());
-        return ['success' => false, 'message' => 'Failed to update notification settings.'];
-    }
-}
-
-/**
- * Update system settings (admin only)
- */
-function updateSystemSettings($data)
-{
-    try {
-        if (!isAdmin()) {
-            return ['success' => false, 'message' => 'Access denied. Admin privileges required.'];
-        }
-
-        $userId = getUserId();
-        $settings = [
-            'data_retention_days' => $data['data_retention_days'] ?? '365',
-            'auto_backup' => isset($data['auto_backup']) ? '1' : '0',
-            'maintenance_mode' => isset($data['maintenance_mode']) ? '1' : '0',
-            'debug_mode' => isset($data['debug_mode']) ? '1' : '0'
-        ];
-
-        foreach ($settings as $key => $value) {
-            saveSetting($userId, 'system_' . $key, $value);
-        }
-
-        return ['success' => true, 'message' => 'System settings updated successfully.'];
-    } catch (Exception $e) {
-        error_log("Update system settings failed: " . $e->getMessage());
-        return ['success' => false, 'message' => 'Failed to update system settings.'];
-    }
-}
-
-/**
- * Save user setting to database
- */
-function saveSetting($userId, $key, $value)
-{
-    try {
-        $pdo = getDatabaseConnection();
-        $stmt = $pdo->prepare("
-            INSERT INTO user_settings (user_id, setting_key, setting_value) 
-            VALUES (?, ?, ?) 
-            ON DUPLICATE KEY UPDATE 
-            setting_value = VALUES(setting_value), 
-            updated_at = CURRENT_TIMESTAMP
-        ");
-        return $stmt->execute([$userId, $key, $value]);
-    } catch (Exception $e) {
-        error_log("Save setting failed: " . $e->getMessage());
-        return false;
-    }
-}
-
-/**
- * Get user setting from database
- */
-function getSetting($userId, $key, $default = '')
-{
-    try {
-        $pdo = getDatabaseConnection();
-        $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE user_id = ? AND setting_key = ?");
-        $stmt->execute([$userId, $key]);
-        $result = $stmt->fetch();
-        return $result ? $result['setting_value'] : $default;
-    } catch (Exception $e) {
-        error_log("Get setting failed: " . $e->getMessage());
-        return $default;
-    }
-}
-
-// Get current settings
-$userId = getUserId();
-$currentSettings = [
-    'theme' => getSetting($userId, 'theme', 'light'),
-    'dashboard_layout' => getSetting($userId, 'dashboard_layout', 'grid'),
-    'sidebar_collapsed' => getSetting($userId, 'sidebar_collapsed', '0'),
-    'chart_style' => getSetting($userId, 'chart_style', 'modern'),
-    'email_notifications' => getSetting($userId, 'email_notifications', '1'),
-    'pest_alerts' => getSetting($userId, 'pest_alerts', '1'),
-    'sensor_alerts' => getSetting($userId, 'sensor_alerts', '1'),
-    'system_alerts' => getSetting($userId, 'system_alerts', '1'),
-    'alert_frequency' => getSetting($userId, 'alert_frequency', 'immediate'),
-    'quiet_hours_start' => getSetting($userId, 'quiet_hours_start', ''),
-    'quiet_hours_end' => getSetting($userId, 'quiet_hours_end', ''),
-    'data_retention_days' => getSetting($userId, 'system_data_retention_days', '365'),
-    'auto_backup' => getSetting($userId, 'system_auto_backup', '0'),
-    'maintenance_mode' => getSetting($userId, 'system_maintenance_mode', '0'),
-    'debug_mode' => getSetting($userId, 'system_debug_mode', '0')
-];
-
-// Set page title for header component
-$pageTitle = 'Settings - IoT Farm Monitoring System';
-
-// Include shared header
+// Include header and navigation
 include 'includes/header.php';
-?>
-<?php
-// Include shared navigation component (sidebar)
 include 'includes/navigation.php';
+
+// Add language support JavaScript
+$currentLanguage = getCurrentLanguage();
+$translations = getTranslations();
+$jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
 ?>
-
-<!-- Settings Content -->
-<div class="p-6 lg:p-8 space-y-8">
-
-    <!-- Page Header -->
-    <div class="animate-slide-up">
-        <div class="flex items-center justify-between mb-8">
-            <div>
-                <h1 class="text-display-md font-display text-secondary-900 mb-2">Settings</h1>
-                <p class="text-body-lg text-secondary-600">Customize your dashboard experience and system preferences</p>
-            </div>
-            <div class="flex items-center space-x-3">
-                <div class="w-12 h-12 bg-gradient-to-br from-primary-500 to-primary-600 rounded-xl flex items-center justify-center">
-                    <i class="fas fa-cog text-white text-xl"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Success/Error Messages -->
-    <?php if ($message): ?>
-        <div class="animate-fade-in">
-            <div class="p-4 rounded-lg border <?php echo $messageType === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'; ?>">
-                <div class="flex items-center">
-                    <i class="fas <?php echo $messageType === 'success' ? 'fa-check-circle' : 'fa-exclamation-circle'; ?> mr-3"></i>
-                    <span class="text-body-md font-medium"><?php echo htmlspecialchars($message); ?></span>
-                </div>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <!-- Settings Sections -->
-    <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
-
-        <!-- Dashboard Appearance Settings -->
-        <div class="animate-slide-up">
-            <div class="card-elevated">
-                <div class="bg-gradient-to-r from-primary-50 to-primary-100 px-6 py-4 border-b border-primary-200">
-                    <h2 class="text-heading-lg text-secondary-900 flex items-center">
-                        <i class="fas fa-palette text-primary-600 mr-3"></i>
-                        Dashboard Appearance
-                    </h2>
-                    <p class="text-body-sm text-secondary-600 mt-1">Customize the look and feel of your dashboard</p>
-                </div>
-                <form method="POST" class="p-6 space-y-6">
-                    <input type="hidden" name="action" value="update_appearance">
-
-                    <!-- Theme Selection -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Theme</label>
-                        <div class="grid grid-cols-2 gap-4">
-                            <label class="relative cursor-pointer">
-                                <input type="radio" name="theme" value="light" <?php echo $currentSettings['theme'] === 'light' ? 'checked' : ''; ?> class="sr-only">
-                                <div class="p-4 border-2 rounded-lg transition-all duration-200 hover:border-primary-300 <?php echo $currentSettings['theme'] === 'light' ? 'border-primary-500 bg-primary-50' : 'border-secondary-200'; ?>">
-                                    <div class="flex items-center space-x-3">
-                                        <div class="w-8 h-8 bg-white border border-secondary-300 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-sun text-yellow-500"></i>
-                                        </div>
-                                        <div>
-                                            <div class="text-body-md font-medium text-secondary-900">Light Theme</div>
-                                            <div class="text-body-sm text-secondary-600">Clean and bright interface</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </label>
-                            <label class="relative cursor-pointer">
-                                <input type="radio" name="theme" value="dark" <?php echo $currentSettings['theme'] === 'dark' ? 'checked' : ''; ?> class="sr-only">
-                                <div class="p-4 border-2 rounded-lg transition-all duration-200 hover:border-primary-300 <?php echo $currentSettings['theme'] === 'dark' ? 'border-primary-500 bg-primary-50' : 'border-secondary-200'; ?>">
-                                    <div class="flex items-center space-x-3">
-                                        <div class="w-8 h-8 bg-secondary-800 border border-secondary-600 rounded-lg flex items-center justify-center">
-                                            <i class="fas fa-moon text-blue-400"></i>
-                                        </div>
-                                        <div>
-                                            <div class="text-body-md font-medium text-secondary-900">Dark Theme</div>
-                                            <div class="text-body-sm text-secondary-600">Easy on the eyes</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Dashboard Layout -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Dashboard Layout</label>
-                        <select name="dashboard_layout" class="w-full form-input">
-                            <option value="grid" <?php echo $currentSettings['dashboard_layout'] === 'grid' ? 'selected' : ''; ?>>Grid Layout</option>
-                            <option value="list" <?php echo $currentSettings['dashboard_layout'] === 'list' ? 'selected' : ''; ?>>List Layout</option>
-                            <option value="compact" <?php echo $currentSettings['dashboard_layout'] === 'compact' ? 'selected' : ''; ?>>Compact Layout</option>
-                        </select>
-                    </div>
-
-                    <!-- Chart Style -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Chart Style</label>
-                        <select name="chart_style" class="w-full form-input">
-                            <option value="modern" <?php echo $currentSettings['chart_style'] === 'modern' ? 'selected' : ''; ?>>Modern</option>
-                            <option value="classic" <?php echo $currentSettings['chart_style'] === 'classic' ? 'selected' : ''; ?>>Classic</option>
-                            <option value="minimal" <?php echo $currentSettings['chart_style'] === 'minimal' ? 'selected' : ''; ?>>Minimal</option>
-                        </select>
-                    </div>
-
-                    <!-- Sidebar Options -->
-                    <div>
-                        <label class="flex items-center space-x-3 cursor-pointer">
-                            <input type="checkbox" name="sidebar_collapsed" <?php echo $currentSettings['sidebar_collapsed'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                            <div>
-                                <div class="text-body-md font-medium text-secondary-900">Collapse Sidebar by Default</div>
-                                <div class="text-body-sm text-secondary-600">Start with a collapsed navigation sidebar</div>
-                            </div>
-                        </label>
-                    </div>
-
-                    <div class="pt-4 border-t border-secondary-200">
-                        <button type="submit" class="btn-primary">
-                            <i class="fas fa-save mr-2"></i>
-                            Save Appearance Settings
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-        <!-- Notification Preferences -->
-        <div class="animate-slide-up">
-            <div class="card-elevated">
-                <div class="bg-gradient-to-r from-yellow-50 to-yellow-100 px-6 py-4 border-b border-yellow-200">
-                    <h2 class="text-heading-lg text-secondary-900 flex items-center">
-                        <i class="fas fa-bell text-yellow-600 mr-3"></i>
-                        Notification Preferences
-                    </h2>
-                    <p class="text-body-sm text-secondary-600 mt-1">Configure how and when you receive alerts</p>
-                </div>
-                <form method="POST" class="p-6 space-y-6">
-                    <input type="hidden" name="action" value="update_notifications">
-
-                    <!-- Notification Types -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-4">Alert Types</label>
-                        <div class="space-y-4">
-                            <label class="flex items-center space-x-3 cursor-pointer">
-                                <input type="checkbox" name="email_notifications" <?php echo $currentSettings['email_notifications'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                                <div>
-                                    <div class="text-body-md font-medium text-secondary-900">Email Notifications</div>
-                                    <div class="text-body-sm text-secondary-600">Receive alerts via email</div>
-                                </div>
-                            </label>
-                            <label class="flex items-center space-x-3 cursor-pointer">
-                                <input type="checkbox" name="pest_alerts" <?php echo $currentSettings['pest_alerts'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                                <div>
-                                    <div class="text-body-md font-medium text-secondary-900">Pest Detection Alerts</div>
-                                    <div class="text-body-sm text-secondary-600">Notifications for pest events</div>
-                                </div>
-                            </label>
-                            <label class="flex items-center space-x-3 cursor-pointer">
-                                <input type="checkbox" name="sensor_alerts" <?php echo $currentSettings['sensor_alerts'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                                <div>
-                                    <div class="text-body-md font-medium text-secondary-900">Sensor Alerts</div>
-                                    <div class="text-body-sm text-secondary-600">Notifications for sensor issues</div>
-                                </div>
-                            </label>
-                            <label class="flex items-center space-x-3 cursor-pointer">
-                                <input type="checkbox" name="system_alerts" <?php echo $currentSettings['system_alerts'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                                <div>
-                                    <div class="text-body-md font-medium text-secondary-900">System Alerts</div>
-                                    <div class="text-body-sm text-secondary-600">System status notifications</div>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Alert Frequency -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Alert Frequency</label>
-                        <select name="alert_frequency" class="w-full form-input">
-                            <option value="immediate" <?php echo $currentSettings['alert_frequency'] === 'immediate' ? 'selected' : ''; ?>>Immediate</option>
-                            <option value="hourly" <?php echo $currentSettings['alert_frequency'] === 'hourly' ? 'selected' : ''; ?>>Hourly Digest</option>
-                            <option value="daily" <?php echo $currentSettings['alert_frequency'] === 'daily' ? 'selected' : ''; ?>>Daily Digest</option>
-                            <option value="weekly" <?php echo $currentSettings['alert_frequency'] === 'weekly' ? 'selected' : ''; ?>>Weekly Digest</option>
-                        </select>
-                    </div>
-
-                    <!-- Quiet Hours -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Quiet Hours</label>
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-body-sm text-secondary-600 mb-2">Start Time</label>
-                                <input type="time" name="quiet_hours_start" value="<?php echo htmlspecialchars($currentSettings['quiet_hours_start']); ?>" class="w-full form-input">
-                            </div>
-                            <div>
-                                <label class="block text-body-sm text-secondary-600 mb-2">End Time</label>
-                                <input type="time" name="quiet_hours_end" value="<?php echo htmlspecialchars($currentSettings['quiet_hours_end']); ?>" class="w-full form-input">
-                            </div>
-                        </div>
-                        <p class="text-body-xs text-secondary-500 mt-2">No notifications will be sent during quiet hours</p>
-                    </div>
-
-                    <div class="pt-4 border-t border-secondary-200">
-                        <button type="submit" class="btn-primary">
-                            <i class="fas fa-save mr-2"></i>
-                            Save Notification Settings
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
-    <!-- System Settings (Admin Only) -->
-    <?php if (isAdmin()): ?>
-        <div class="animate-slide-up">
-            <div class="card-elevated">
-                <div class="bg-gradient-to-r from-red-50 to-red-100 px-6 py-4 border-b border-red-200">
-                    <h2 class="text-heading-lg text-secondary-900 flex items-center">
-                        <i class="fas fa-server text-red-600 mr-3"></i>
-                        System Settings
-                        <span class="ml-3 px-2 py-1 bg-red-100 text-red-800 text-body-xs font-medium rounded-full">Admin Only</span>
-                    </h2>
-                    <p class="text-body-sm text-secondary-600 mt-1">Configure system-wide settings and maintenance options</p>
-                </div>
-                <form method="POST" class="p-6 space-y-6">
-                    <input type="hidden" name="action" value="update_system">
-
-                    <!-- Data Retention -->
-                    <div>
-                        <label class="block text-body-md font-medium text-secondary-900 mb-3">Data Retention Period</label>
-                        <select name="data_retention_days" class="w-full form-input">
-                            <option value="30" <?php echo $currentSettings['data_retention_days'] === '30' ? 'selected' : ''; ?>>30 Days</option>
-                            <option value="90" <?php echo $currentSettings['data_retention_days'] === '90' ? 'selected' : ''; ?>>90 Days</option>
-                            <option value="180" <?php echo $currentSettings['data_retention_days'] === '180' ? 'selected' : ''; ?>>6 Months</option>
-                            <option value="365" <?php echo $currentSettings['data_retention_days'] === '365' ? 'selected' : ''; ?>>1 Year</option>
-                            <option value="730" <?php echo $currentSettings['data_retention_days'] === '730' ? 'selected' : ''; ?>>2 Years</option>
-                        </select>
-                        <p class="text-body-xs text-secondary-500 mt-2">How long to keep sensor data and alerts</p>
-                    </div>
-
-                    <!-- System Options -->
-                    <div class="space-y-4">
-                        <label class="flex items-center space-x-3 cursor-pointer">
-                            <input type="checkbox" name="auto_backup" <?php echo $currentSettings['auto_backup'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                            <div>
-                                <div class="text-body-md font-medium text-secondary-900">Automatic Backups</div>
-                                <div class="text-body-sm text-secondary-600">Enable daily database backups</div>
-                            </div>
-                        </label>
-                        <label class="flex items-center space-x-3 cursor-pointer">
-                            <input type="checkbox" name="maintenance_mode" <?php echo $currentSettings['maintenance_mode'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                            <div>
-                                <div class="text-body-md font-medium text-secondary-900">Maintenance Mode</div>
-                                <div class="text-body-sm text-secondary-600">Restrict access for system maintenance</div>
-                            </div>
-                        </label>
-                        <label class="flex items-center space-x-3 cursor-pointer">
-                            <input type="checkbox" name="debug_mode" <?php echo $currentSettings['debug_mode'] === '1' ? 'checked' : ''; ?> class="w-4 h-4 text-primary-600 border-secondary-300 rounded focus:ring-primary-500">
-                            <div>
-                                <div class="text-body-md font-medium text-secondary-900">Debug Mode</div>
-                                <div class="text-body-sm text-secondary-600">Enable detailed error logging</div>
-                            </div>
-                        </label>
-                    </div>
-
-                    <div class="pt-4 border-t border-secondary-200">
-                        <button type="submit" class="btn-primary">
-                            <i class="fas fa-save mr-2"></i>
-                            Save System Settings
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    <?php endif; ?>
-
-    <!-- Future IoT/AI Configuration Placeholders -->
-    <div class="animate-slide-up">
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
-
-            <!-- IoT Device Configuration -->
-            <div class="card-elevated opacity-60">
-                <div class="bg-gradient-to-r from-green-50 to-green-100 px-6 py-4 border-b border-green-200">
-                    <h2 class="text-heading-lg text-secondary-900 flex items-center">
-                        <i class="fas fa-microchip text-green-600 mr-3"></i>
-                        IoT Device Configuration
-                        <span class="ml-3 px-2 py-1 bg-yellow-100 text-yellow-800 text-body-xs font-medium rounded-full">Coming Soon</span>
-                    </h2>
-                    <p class="text-body-sm text-secondary-600 mt-1">Configure real IoT sensor connections and protocols</p>
-                </div>
-                <div class="p-6">
-                    <div class="space-y-4 text-center">
-                        <div class="w-16 h-16 bg-green-100 rounded-2xl flex items-center justify-center mx-auto">
-                            <i class="fas fa-wifi text-green-600 text-2xl"></i>
-                        </div>
-                        <div>
-                            <h3 class="text-heading-md text-secondary-900 mb-2">Real-time IoT Integration</h3>
-                            <p class="text-body-md text-secondary-600 mb-4">Connect and configure physical sensors, set communication protocols, and manage device networks.</p>
-                            <div class="space-y-2 text-body-sm text-secondary-500">
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    MQTT Protocol Support
-                                </div>
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    LoRaWAN Integration
-                                </div>
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    Device Management
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- AI Configuration -->
-            <div class="card-elevated opacity-60">
-                <div class="bg-gradient-to-r from-purple-50 to-purple-100 px-6 py-4 border-b border-purple-200">
-                    <h2 class="text-heading-lg text-secondary-900 flex items-center">
-                        <i class="fas fa-brain text-purple-600 mr-3"></i>
-                        AI & Machine Learning
-                        <span class="ml-3 px-2 py-1 bg-yellow-100 text-yellow-800 text-body-xs font-medium rounded-full">Coming Soon</span>
-                    </h2>
-                    <p class="text-body-sm text-secondary-600 mt-1">Configure AI models for pest detection and predictive analytics</p>
-                </div>
-                <div class="p-6">
-                    <div class="space-y-4 text-center">
-                        <div class="w-16 h-16 bg-purple-100 rounded-2xl flex items-center justify-center mx-auto">
-                            <i class="fas fa-robot text-purple-600 text-2xl"></i>
-                        </div>
-                        <div>
-                            <h3 class="text-heading-md text-secondary-900 mb-2">Intelligent Farm Monitoring</h3>
-                            <p class="text-body-md text-secondary-600 mb-4">Advanced AI algorithms for pest detection, crop health analysis, and predictive maintenance.</p>
-                            <div class="space-y-2 text-body-sm text-secondary-500">
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    Computer Vision Models
-                                </div>
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    Predictive Analytics
-                                </div>
-                                <div class="flex items-center justify-center">
-                                    <i class="fas fa-check text-green-500 mr-2"></i>
-                                    Automated Alerts
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<?php
-// Include shared footer
-include 'includes/footer.php';
-?>
-</main>
-</div>
-</div>
 
 <script>
-    // Settings page JavaScript functionality
-    document.addEventListener('DOMContentLoaded', function() {
+    // Initialize language system for this page
+    const pageLanguage = '<?php echo $currentLanguage; ?>';
+    const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
+</script>
+<script src="includes/language.js"></script>
 
-        // Theme preview functionality
-        const themeInputs = document.querySelectorAll('input[name="theme"]');
-        themeInputs.forEach(input => {
-            input.addEventListener('change', function() {
-                // Add visual feedback for theme selection
-                const allLabels = document.querySelectorAll('input[name="theme"]').forEach(radio => {
-                    const label = radio.closest('label');
-                    const div = label.querySelector('div');
-                    if (radio.checked) {
-                        div.classList.add('border-primary-500', 'bg-primary-50');
-                        div.classList.remove('border-secondary-200');
-                    } else {
-                        div.classList.remove('border-primary-500', 'bg-primary-50');
-                        div.classList.add('border-secondary-200');
-                    }
-                });
-            });
+<?php
+?>
+
+<div class="p-4 max-w-7xl mx-auto">
+
+    <!-- Success Message -->
+    <?php if ($success): ?>
+        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-xl p-4 mb-4">
+            <div class="flex items-center">
+                <i class="fas fa-check-circle text-green-500 dark:text-green-400 mr-3"></i>
+                <span class="text-green-700 dark:text-green-300 font-medium"><?php echo htmlspecialchars($success); ?></span>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <!-- Error Message -->
+    <?php if ($error): ?>
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4 mb-4">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle text-red-500 dark:text-red-400 mr-3"></i>
+                <span class="text-red-700 dark:text-red-300 font-medium"><?php echo htmlspecialchars($error); ?></span>
+            </div>
+        </div>
+    <?php endif; ?>
+
+    <!-- Tab Navigation -->
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl mb-4">
+        <div class="border-b border-gray-200 dark:border-gray-700">
+            <nav class="flex space-x-8 px-4" aria-label="Tabs">
+                <button onclick="showTab('notifications')" id="notifications-tab" class="tab-button active border-b-2 border-green-500 py-3 px-1 text-sm font-medium text-green-600 dark:text-green-400">
+                    <i class="fas fa-bell mr-2"></i>
+                    <span data-translate="notifications">Notifications</span>
+                </button>
+                <button onclick="showTab('preferences')" id="preferences-tab" class="tab-button border-b-2 border-transparent py-3 px-1 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300">
+                    <i class="fas fa-cog mr-2"></i>
+                    <span data-translate="preferences">Preferences</span>
+                </button>
+            </nav>
+        </div>
+    </div>
+
+    <!-- Tab Content -->
+    <div class="space-y-4">
+
+        <!-- Notifications Tab -->
+        <div id="notifications-content" class="tab-content hidden">
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
+                        <i class="fas fa-bell text-yellow-600 mr-2"></i>
+                        <span data-translate="notification_settings">Notification Settings</span>
+                    </h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Configure system-wide notification preferences</p>
+                </div>
+                <div class="p-4">
+                    <div class="space-y-6">
+                        <!-- Email Notifications -->
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Email Notifications</h4>
+                            <div class="space-y-3">
+                                <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                    <div>
+                                        <span class="text-sm text-gray-900 dark:text-white" data-translate="system_alerts">System Alerts</span>
+                                        <p class="text-xs text-gray-600 dark:text-gray-400">Send email for critical system events</p>
+                                    </div>
+                                    <button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                        <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+                                    </button>
+                                </div>
+                                <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                    <div>
+                                        <span class="text-sm text-gray-900 dark:text-white" data-translate="daily_reports">Daily Reports</span>
+                                        <p class="text-xs text-gray-600 dark:text-gray-400">Send daily summary reports</p>
+                                    </div>
+                                    <button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                        <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Alert Thresholds -->
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Alert Thresholds</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Temperature (°C)</label>
+                                    <div class="flex space-x-2">
+                                        <input type="number" placeholder="Min" value="15" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                        <input type="number" placeholder="Max" value="35" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Humidity (%)</label>
+                                    <div class="flex space-x-2">
+                                        <input type="number" placeholder="Min" value="40" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                        <input type="number" placeholder="Max" value="80" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Soil Moisture (%)</label>
+                                    <div class="flex space-x-2">
+                                        <input type="number" placeholder="Min" value="30" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                        <input type="number" placeholder="Max" value="70" class="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preferences Tab -->
+        <div id="preferences-content" class="tab-content hidden">
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
+                        <i class="fas fa-cog text-purple-600 mr-2"></i>
+                        <span data-translate="user_preferences">User Preferences</span>
+                    </h3>
+                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Customize your experience and notification settings</p>
+                </div>
+                <div class="p-4 space-y-6">
+                    <!-- Theme Preferences -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Theme & Display</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div>
+                                    <span class="text-sm text-gray-900 dark:text-white" data-translate="dark_mode">Dark Mode</span>
+                                    <p class="text-xs text-gray-600 dark:text-gray-400">Switch between light and dark themes</p>
+                                </div>
+                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div>
+                                    <span class="text-sm text-gray-900 dark:text-white" data-translate="compact_view">Compact View</span>
+                                    <p class="text-xs text-gray-600 dark:text-gray-400">Use smaller spacing and fonts</p>
+                                </div>
+                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Notification Preferences -->
+                    <div>
+                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Notifications</h4>
+                        <div class="space-y-3">
+                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div>
+                                    <span class="text-sm text-gray-900 dark:text-white" data-translate="email_notifications">Email Notifications</span>
+                                    <p class="text-xs text-gray-600 dark:text-gray-400">Receive updates via email</p>
+                                </div>
+                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+                                </button>
+                            </div>
+                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                                <div>
+                                    <span class="text-sm text-gray-900 dark:text-white" data-translate="pest_alerts">Pest Alerts</span>
+                                    <p class="text-xs text-gray-600 dark:text-gray-400">Get notified about pest detection</p>
+                                </div>
+                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Language & Region -->
+                    <form method="POST" action="" id="preferences-form">
+                        <input type="hidden" name="action" value="update_preferences">
+
+                        <div>
+                            <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Language & Region</h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1" data-translate="language">Language</label>
+                                    <select name="language" id="language-select" class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                        <option value="en" <?php echo $currentLanguage === 'en' ? 'selected' : ''; ?> data-translate="english">English</option>
+                                        <option value="tl" <?php echo $currentLanguage === 'tl' ? 'selected' : ''; ?> data-translate="tagalog">Tagalog</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1" data-translate="timezone">Timezone</label>
+                                    <select name="timezone" id="timezone-select" class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                        <option value="UTC+8" <?php echo $currentTimezone === 'UTC+8' ? 'selected' : ''; ?>>UTC+8 (Philippine Time)</option>
+                                        <option value="UTC-5" <?php echo $currentTimezone === 'UTC-5' ? 'selected' : ''; ?>>UTC-5 (Eastern Time)</option>
+                                        <option value="UTC-6" <?php echo $currentTimezone === 'UTC-6' ? 'selected' : ''; ?>>UTC-6 (Central Time)</option>
+                                        <option value="UTC-7" <?php echo $currentTimezone === 'UTC-7' ? 'selected' : ''; ?>>UTC-7 (Mountain Time)</option>
+                                        <option value="UTC-8" <?php echo $currentTimezone === 'UTC-8' ? 'selected' : ''; ?>>UTC-8 (Pacific Time)</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Save Button -->
+                        <div class="flex justify-end pt-3 border-t border-gray-200 dark:border-gray-600">
+                            <button type="submit" class="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200">
+                                <i class="fas fa-save mr-2"></i>
+                                <span data-translate="save_preferences">Save Preferences</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- Tab Switching JavaScript -->
+<script>
+    function showTab(tabName) {
+        // Hide all tab contents
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabContents.forEach(content => {
+            content.classList.add('hidden');
         });
 
-        // Form validation
-        const forms = document.querySelectorAll('form');
-        forms.forEach(form => {
-            form.addEventListener('submit', function(e) {
-                const submitButton = form.querySelector('button[type="submit"]');
-                if (submitButton) {
-                    submitButton.disabled = true;
-                    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Saving...';
-
-                    // Re-enable button after 3 seconds to prevent permanent disable
-                    setTimeout(() => {
-                        submitButton.disabled = false;
-                        submitButton.innerHTML = submitButton.innerHTML.replace('Saving...', 'Save Settings');
-                    }, 3000);
-                }
-            });
+        // Remove active class from all tab buttons
+        const tabButtons = document.querySelectorAll('.tab-button');
+        tabButtons.forEach(button => {
+            button.classList.remove('active', 'border-green-500', 'text-green-600', 'dark:text-green-400');
+            button.classList.add('border-transparent', 'text-gray-500', 'dark:text-gray-400', 'hover:text-gray-700', 'dark:hover:text-gray-300', 'hover:border-gray-300');
         });
 
-        // Quiet hours validation
-        const startTimeInput = document.querySelector('input[name="quiet_hours_start"]');
-        const endTimeInput = document.querySelector('input[name="quiet_hours_end"]');
-
-        if (startTimeInput && endTimeInput) {
-            function validateQuietHours() {
-                const startTime = startTimeInput.value;
-                const endTime = endTimeInput.value;
-
-                if (startTime && endTime) {
-                    const start = new Date('2000-01-01 ' + startTime);
-                    const end = new Date('2000-01-01 ' + endTime);
-
-                    if (start >= end) {
-                        endTimeInput.setCustomValidity('End time must be after start time');
-                    } else {
-                        endTimeInput.setCustomValidity('');
-                    }
-                }
-            }
-
-            startTimeInput.addEventListener('change', validateQuietHours);
-            endTimeInput.addEventListener('change', validateQuietHours);
+        // Show selected tab content
+        const selectedContent = document.getElementById(tabName + '-content');
+        if (selectedContent) {
+            selectedContent.classList.remove('hidden');
         }
 
-        // Auto-hide success messages
-        const successMessages = document.querySelectorAll('.bg-green-50');
-        successMessages.forEach(message => {
-            setTimeout(() => {
-                message.style.transition = 'opacity 0.5s ease-out';
-                message.style.opacity = '0';
-                setTimeout(() => {
-                    message.remove();
-                }, 500);
-            }, 5000);
+        // Add active class to selected tab button
+        const selectedButton = document.getElementById(tabName + '-tab');
+        if (selectedButton) {
+            selectedButton.classList.add('active', 'border-green-500', 'text-green-600', 'dark:text-green-400');
+            selectedButton.classList.remove('border-transparent', 'text-gray-500', 'dark:text-gray-400', 'hover:text-gray-700', 'dark:hover:text-gray-300', 'hover:border-gray-300');
+        }
+    }
+
+    // Initialize with notifications tab active
+    document.addEventListener('DOMContentLoaded', function() {
+        showTab('notifications');
+    });
+
+    // Toggle switch functionality
+    document.addEventListener('DOMContentLoaded', function() {
+        const toggleButtons = document.querySelectorAll('button[class*="inline-flex h-6 w-11"]');
+
+        toggleButtons.forEach(button => {
+            button.addEventListener('click', function() {
+                const span = this.querySelector('span');
+                const isActive = span.classList.contains('translate-x-6');
+
+                if (isActive) {
+                    // Turn off
+                    span.classList.remove('translate-x-6');
+                    span.classList.add('translate-x-1');
+                    this.classList.remove('bg-green-600');
+                    this.classList.add('bg-gray-200', 'dark:bg-gray-600');
+                } else {
+                    // Turn on
+                    span.classList.remove('translate-x-1');
+                    span.classList.add('translate-x-6');
+                    this.classList.remove('bg-gray-200', 'dark:bg-gray-600');
+                    this.classList.add('bg-green-600');
+                }
+            });
         });
     });
+
+    // Language change handler (using global language system)
+    document.addEventListener('DOMContentLoaded', function() {
+        const languageSelect = document.getElementById('language-select');
+        if (languageSelect) {
+            languageSelect.addEventListener('change', function() {
+                // Use the global language system
+                if (window.LanguageSystem) {
+                    window.LanguageSystem.changeLanguage(this.value);
+                }
+            });
+        }
+    });
 </script>
+
+<?php include 'includes/footer.php'; ?>

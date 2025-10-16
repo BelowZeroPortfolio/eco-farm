@@ -17,6 +17,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/language.php';
 
 // Get current user data
 $currentUserId = $_SESSION['user_id'];
@@ -167,6 +168,21 @@ $additionalJS = [];
 // Include header and navigation
 include 'includes/header.php';
 include 'includes/navigation.php';
+
+// Add language support JavaScript
+$currentLanguage = getCurrentLanguage();
+$translations = getTranslations();
+$jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
+?>
+
+<script>
+// Initialize language system for this page
+const pageLanguage = '<?php echo $currentLanguage; ?>';
+const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
+</script>
+<script src="includes/language.js"></script>
+
+<?php
 ?>
 
 <div class="p-4 max-w-7xl mx-auto">
@@ -197,10 +213,6 @@ include 'includes/navigation.php';
                     <i class="fas fa-lock mr-2"></i>
                     Security
                 </button>
-                <button onclick="showTab('preferences')" id="preferences-tab" class="tab-button border-b-2 border-transparent py-3 px-1 text-sm font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:border-gray-300">
-                    <i class="fas fa-cog mr-2"></i>
-                    Preferences
-                </button>
             </nav>
         </div>
     </div>
@@ -217,7 +229,7 @@ include 'includes/navigation.php';
                         <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
                             <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
                                 <i class="fas fa-user text-green-600 mr-2"></i>
-                                Profile Overview
+                                <span data-translate="profile_overview">Profile Overview</span>
                             </h3>
                             <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Your profile information and activity summary</p>
                         </div>
@@ -666,114 +678,6 @@ include 'includes/navigation.php';
                                 </li>
                             </ul>
                         </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Preferences Tab -->
-        <div id="preferences-content" class="tab-content hidden">
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
-                        <i class="fas fa-cog text-purple-600 mr-2"></i>
-                        User Preferences
-                    </h3>
-                    <p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Customize your experience and notification settings</p>
-                </div>
-
-                <div class="p-4 space-y-6">
-                    <!-- Theme Preferences -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Theme & Display</h4>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div>
-                                    <span class="text-sm text-gray-900 dark:text-white">Dark Mode</span>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400">Switch between light and dark themes</p>
-                                </div>
-                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                                </button>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div>
-                                    <span class="text-sm text-gray-900 dark:text-white">Compact View</span>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400">Use smaller spacing and fonts</p>
-                                </div
-                                    <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Notification Preferences -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Notifications</h4>
-                        <div class="space-y-3">
-                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div>
-                                    <span class="text-sm text-gray-900 dark:text-white">Email Notifications</span>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400">Receive updates via email</p>
-                                </div>
-                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-                                </button>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div>
-                                    <span class="text-sm text-gray-900 dark:text-white">Pest Alerts</span>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400">Get notified about pest detection</p>
-                                </div>
-                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-                                </button>
-                            </div>
-                            <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                <div>
-                                    <span class="text-sm text-gray-900 dark:text-white">System Updates</span>
-                                    <p class="text-xs text-gray-600 dark:text-gray-400">Notifications about system maintenance</p>
-                                </div>
-                                <button class="relative inline-flex h-6 w-11 items-center rounded-full bg-gray-200 dark:bg-gray-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                    <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Language & Region -->
-                    <div>
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Language & Region</h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Language</label>
-                                <select class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
-                                    <option>English (US)</option>
-                                    <option>Spanish</option>
-                                    <option>French</option>
-                                    <option>German</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Timezone</label>
-                                <select class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
-                                    <option>UTC-5 (Eastern Time)</option>
-                                    <option>UTC-6 (Central Time)</option>
-                                    <option>UTC-7 (Mountain Time)</option>
-                                    <option>UTC-8 (Pacific Time)</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Save Button -->
-                    <div class="flex justify-end pt-3 border-t border-gray-200 dark:border-gray-600">
-                        <button type="button"
-                            class="px-4 py-2 bg-green-600 text-white font-medium rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors duration-200">
-                            <i class="fas fa-save mr-2"></i>
-                            Save Preferences
-                        </button>
                     </div>
                 </div>
             </div>

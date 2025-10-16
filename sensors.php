@@ -16,6 +16,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 }
 
 require_once 'config/database.php';
+require_once 'includes/language.php';
 
 $currentUser = [
     'id' => $_SESSION['user_id'],
@@ -154,6 +155,21 @@ $pageTitle = 'Sensors - IoT Farm Monitoring System';
 
 // Include shared header
 include 'includes/header.php';
+
+// Add language support JavaScript
+$currentLanguage = getCurrentLanguage();
+$translations = getTranslations();
+$jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
+?>
+
+<script>
+// Initialize language system for this page
+const pageLanguage = '<?php echo $currentLanguage; ?>';
+const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
+</script>
+<script src="includes/language.js"></script>
+
+<?php
 ?>
 <?php
 // Include shared navigation component (sidebar)
