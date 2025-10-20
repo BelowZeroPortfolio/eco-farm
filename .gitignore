@@ -11,13 +11,21 @@ composer.phar
 *~
 
 # OS generated files
+# macOS
 .DS_Store
 .DS_Store?
 ._*
 .Spotlight-V100
 .Trashes
-ehthumbs.db
+# Windows
 Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
 
 # Logs and debugging
 /logs/*.log
@@ -74,10 +82,32 @@ clean_*.php
 *.bak
 *.backup
 *~
+*.orig
 
 # PHP specific
 *.php~
 .phpunit.result.cache
+
+# Python specific (for YOLO detection)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+# YOLO/ML model files (keep best.pt but ignore training outputs)
+runs/
+weights/
+*.weights
+yolov*.pt
+!best.pt
 
 # Kiro IDE files (keep specs but ignore temp files)
 .kiro/temp/

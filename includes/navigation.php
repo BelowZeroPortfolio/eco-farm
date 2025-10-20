@@ -352,24 +352,8 @@ function getRoleBadgeClasses($role)
 
                 <!-- Right Side - Search, Actions, User Menu -->
                 <div class="flex items-center space-x-4">
-                    <!-- Search Bar (Desktop) -->
-                    <div class="hidden md:block relative">
-                        <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                            <i class="fas fa-search text-secondary-400"></i>
-                        </div>
-                        <input type="text"
-                            placeholder="Search..."
-                            class="form-input pl-10 pr-4 py-2 w-64 text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                    </div>
-
                     <!-- Action Buttons -->
                     <div class="flex items-center space-x-2">
-                        <!-- Search Button (Mobile) -->
-                        <button type="button"
-                            class="md:hidden p-2 text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100 dark:text-secondary-400 dark:hover:text-secondary-200 dark:hover:bg-secondary-800 rounded-lg transition-colors duration-200"
-                            onclick="toggleMobileSearch()">
-                            <i class="fas fa-search text-lg"></i>
-                        </button>
 
                         <!-- Theme Toggle Button -->
                         <button type="button"
@@ -476,17 +460,7 @@ function getRoleBadgeClasses($role)
                 </div>
             </div>
 
-            <!-- Mobile Search Bar (Hidden by default) -->
-            <div class="hidden md:hidden px-4 pb-3" id="mobile-search-bar">
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fas fa-search text-secondary-400"></i>
-                    </div>
-                    <input type="text"
-                        placeholder="Search..."
-                        class="form-input pl-10 pr-4 py-2 w-full text-body-md border-secondary-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                </div>
-            </div>
+            
         </div>
 
         <!-- Content Wrapper -->
@@ -649,20 +623,12 @@ function getRoleBadgeClasses($role)
                         }
                     });
 
-                    // Search functionality
-                    const searchInputs = document.querySelectorAll('input[placeholder="Search..."]');
-                    searchInputs.forEach(input => {
-                        input.addEventListener('keydown', function(e) {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                const query = this.value.trim();
-                                if (query) {
-                                    // Placeholder for search functionality
-                                    showToast(`Searching for: "${query}"`, 'info');
-                                }
-                            }
-                        });
-                    });
+                    // Utility function
+                    function escapeHtml(text) {
+                        const div = document.createElement('div');
+                        div.textContent = text;
+                        return div.innerHTML;
+                    }
 
                     // Close dropdowns when pressing Escape
                     document.addEventListener('keydown', function(e) {

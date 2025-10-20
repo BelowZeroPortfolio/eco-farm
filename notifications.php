@@ -33,16 +33,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         case 'mark_read':
             $notificationId = $_POST['notification_id'] ?? null;
             if ($notificationId) {
-                $success = markNotificationAsRead($notificationId);
-                echo json_encode(['success' => $success]);
+                // Check if it's a pest alert
+                if (strpos($notificationId, 'pest_') === 0) {
+                    $alertId = str_replace('pest_', '', $notificationId);
+                    try {
+                        $pdo = getDatabaseConnection();
+                        $stmt = $pdo->prepare("
+                            UPDATE pest_alerts 
+                            SET is_read = TRUE, read_at = NOW(), read_by = ? 
+                            WHERE id = ?
+                        ");
+                        $success = $stmt->execute([$currentUser['id'], $alertId]);
+                        echo json_encode(['success' => $success]);
+                    } catch (Exception $e) {
+                        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+                    }
+                } else {
+                    $success = markNotificationAsRead($notificationId);
+                    echo json_encode(['success' => $success]);
+                }
             } else {
                 echo json_encode(['success' => false, 'message' => 'Invalid notification ID']);
             }
             exit;
 
         case 'mark_all_read':
-            // In a real implementation, this would mark all notifications as read
-            echo json_encode(['success' => true, 'message' => 'All notifications marked as read']);
+            try {
+                $pdo = getDatabaseConnection();
+                // Mark all pest alerts as read
+                $stmt = $pdo->prepare("
+                    UPDATE pest_alerts 
+                    SET is_read = TRUE, read_at = NOW(), read_by = ? 
+                    WHERE is_read = FALSE
+                ");
+                $stmt->execute([$currentUser['id']]);
+                $count = $stmt->rowCount();
+
+                echo json_encode(['success' => true, 'message' => "{$count} notifications marked as read"]);
+            } catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
             exit;
 
         default:
@@ -65,6 +95,9 @@ $filteredNotifications = array_filter($allNotifications, function ($notification
         case 'unread':
             return !$notification['read'];
         case 'critical':
+        case 'high':
+        case 'medium':
+        case 'low':
         case 'warning':
         case 'info':
         case 'success':
@@ -85,9 +118,9 @@ $notificationCounts = [
     'all' => count($allNotifications),
     'unread' => count(array_filter($allNotifications, fn($n) => !$n['read'])),
     'critical' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'critical')),
-    'warning' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'warning')),
-    'info' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'info')),
-    'success' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'success'))
+    'high' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'high')),
+    'medium' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'medium')),
+    'low' => count(array_filter($allNotifications, fn($n) => $n['type'] === 'low'))
 ];
 
 // Set page title for header component
@@ -104,6 +137,27 @@ include 'includes/navigation.php';
 <!-- Notifications Content -->
 <div class="p-4 max-w-7xl mx-auto">
 
+    <!-- Page Header -->
+    <div class="mb-6 flex items-center justify-between">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
+                <i class="fas fa-bell text-blue-600 mr-3"></i>
+                Notifications
+            </h1>
+            <p class="text-gray-600 dark:text-gray-400">
+                View and manage all system notifications and pest alerts
+            </p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="refreshNotifications()" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+            <button onclick="markAllAsRead()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
+                <i class="fas fa-check-double mr-2"></i>Mark All Read
+            </button>
+        </div>
+    </div>
+
     <!-- Filter Tabs -->
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4">
         <div class="border-b border-gray-200 dark:border-gray-700">
@@ -113,9 +167,9 @@ include 'includes/navigation.php';
                     'all' => ['label' => 'All', 'icon' => 'fa-list'],
                     'unread' => ['label' => 'Unread', 'icon' => 'fa-circle'],
                     'critical' => ['label' => 'Critical', 'icon' => 'fa-exclamation-triangle'],
-                    'warning' => ['label' => 'Warning', 'icon' => 'fa-exclamation-circle'],
-                    'info' => ['label' => 'Info', 'icon' => 'fa-info-circle'],
-                    'success' => ['label' => 'Success', 'icon' => 'fa-check-circle']
+                    'high' => ['label' => 'High', 'icon' => 'fa-exclamation-circle'],
+                    'medium' => ['label' => 'Medium', 'icon' => 'fa-info-circle'],
+                    'low' => ['label' => 'Low', 'icon' => 'fa-check-circle']
                 ];
 
                 foreach ($filterTabs as $key => $tab):
@@ -160,15 +214,16 @@ include 'includes/navigation.php';
             <div class="divide-y divide-gray-200 dark:divide-gray-700">
                 <?php foreach ($notifications as $notification):
                     $type = $notification['type'];
-                    $config = NOTIFICATION_TYPES[$type];
+                    // Get config with fallback for unknown types
+                    $config = NOTIFICATION_TYPES[$type] ?? NOTIFICATION_TYPES['info'];
                     $color = $config['color'];
                     $icon = $config['icon'];
                     $timeAgo = getTimeAgo($notification['timestamp']);
                     $readClass = $notification['read'] ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800';
                 ?>
                     <div class="notification-item <?php echo $readClass; ?> hover:bg-gray-50 dark:hover:bg-gray-700 p-4 cursor-pointer transition-colors duration-200"
-                        data-notification-id="<?php echo $notification['id']; ?>"
-                        onclick="toggleNotificationDetails(<?php echo $notification['id']; ?>)">
+                        data-notification-id="<?php echo htmlspecialchars($notification['id'], ENT_QUOTES); ?>"
+                        onclick="toggleNotificationDetails('<?php echo htmlspecialchars($notification['id'], ENT_QUOTES); ?>')">
                         <div class="flex items-start space-x-3">
                             <!-- Icon -->
                             <div class="flex-shrink-0">
@@ -201,7 +256,7 @@ include 'includes/navigation.php';
                                     <!-- Actions -->
                                     <div class="flex items-center space-x-2 ml-4">
                                         <?php if (!$notification['read']): ?>
-                                            <button onclick="markAsRead(<?php echo $notification['id']; ?>); event.stopPropagation();"
+                                            <button onclick="markAsRead('<?php echo htmlspecialchars($notification['id'], ENT_QUOTES); ?>'); event.stopPropagation();"
                                                 class="p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-600 rounded transition-colors duration-200"
                                                 title="Mark as read">
                                                 <i class="fas fa-check text-xs"></i>
@@ -297,12 +352,14 @@ include 'includes/navigation.php';
      */
 
     function markAsRead(notificationId) {
+        console.log('Marking notification as read:', notificationId);
+
         fetch('notifications.php', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                 },
-                body: `action=mark_read&notification_id=${notificationId}`
+                body: `action=mark_read&notification_id=${encodeURIComponent(notificationId)}`
             })
             .then(response => response.json())
             .then(data => {

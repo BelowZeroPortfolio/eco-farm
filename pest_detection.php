@@ -9,6 +9,8 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 
 require_once 'config/database.php';
 require_once 'includes/security.php';
+require_once 'pest_severity_config.php';
+require_once 'YOLODetector2.php'; // Flask-based detector
 
 // Check page access permission
 requirePageAccess('pest_detection');
@@ -20,7 +22,10 @@ $currentUser = [
     'role' => $_SESSION['role'] ?? 'student'
 ];
 
-// Handle AJAX requests for pest alert and camera actions
+// ============================================================================
+// AJAX REQUEST HANDLER
+// ============================================================================
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     header('Content-Type: application/json');
 
@@ -28,244 +33,348 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         $pdo = getDatabaseConnection();
 
         switch ($_POST['action']) {
-            case 'update_status':
-                $alertId = filter_var($_POST['alert_id'], FILTER_VALIDATE_INT);
-                $newStatus = trim(htmlspecialchars($_POST['status'] ?? '', ENT_QUOTES, 'UTF-8'));
-
-                if (!$alertId || !in_array($newStatus, ['new', 'acknowledged', 'resolved'])) {
-                    throw new Exception('Invalid parameters');
+            case 'detect_webcam':
+                // Real-time webcam pest detection endpoint using Flask service
+                if (!isset($_FILES['image'])) {
+                    throw new Exception('No image file provided');
                 }
 
-                $stmt = $pdo->prepare("UPDATE pest_alerts SET status = ?, updated_at = NOW() WHERE id = ?");
-                $result = $stmt->execute([$newStatus, $alertId]);
+                // Validate uploaded file
+                $file = $_FILES['image'];
+                if (!is_uploaded_file($file['tmp_name'])) {
+                    throw new Exception('Invalid file upload');
+                }
 
-                if ($result) {
-                    echo json_encode(['success' => true, 'message' => 'Alert status updated successfully']);
-                } else {
-                    throw new Exception('Failed to update alert status');
+                // Check file size (max 5MB)
+                if ($file['size'] > 5242880) {
+                    throw new Exception('File size exceeds maximum allowed size');
+                }
+
+                // Check MIME type
+                $allowedMimeTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+                $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                $mimeType = finfo_file($finfo, $file['tmp_name']);
+                finfo_close($finfo);
+
+                if (!in_array($mimeType, $allowedMimeTypes)) {
+                    throw new Exception('Invalid file type. Only JPEG and PNG images are allowed');
+                }
+
+                // Ensure temp directory exists
+                $tempDir = 'temp/';
+                if (!file_exists($tempDir)) {
+                    mkdir($tempDir, 0755, true);
+                }
+
+                // Clean up old temp files (older than 1 hour)
+                $files = glob($tempDir . 'pest_*');
+                $now = time();
+                foreach ($files as $tempFile) {
+                    if (is_file($tempFile) && ($now - filemtime($tempFile)) > 3600) {
+                        @unlink($tempFile);
+                    }
+                }
+
+                // Generate temp filename and save uploaded file
+                $tempFile = $tempDir . uniqid('pest_', true) . '.jpg';
+                if (!move_uploaded_file($file['tmp_name'], $tempFile)) {
+                    throw new Exception('Failed to save uploaded file');
+                }
+
+                try {
+                    // ===== FLASK SERVICE METHOD (NEW) =====
+                    // Initialize Flask-based YOLO detector
+                    $detector = new YOLODetector2('http://127.0.0.1:5000');
+
+                    // Check if service is healthy
+                    if (!$detector->isHealthy()) {
+                        throw new Exception('YOLO detection service is not available. Please ensure the service is running.');
+                    }
+
+                    // Detect pests using Flask service (get full response with annotated image)
+                    $data = $detector->detectPests($tempFile, true);
+
+                    // Extract annotated image path if available
+                    $annotatedImagePath = $data['annotated_image'] ?? null;
+                    // ===== END FLASK SERVICE METHOD =====
+
+                    // Process detections
+                    $detections = [];
+                    $allDetections = []; // All detections for display (including low confidence)
+                    $confidenceThreshold = 60; // 60% confidence threshold for logging
+                    $rateLimitSeconds = 60; // Rate limit: same pest type within 60 seconds
+
+                    foreach ($data['pests'] as $pest) {
+                        $pestType = $pest['type'] ?? 'unknown';
+                        $confidence = $pest['confidence'] ?? 0;
+                        $logged = false;
+                        $severity = 'low';
+
+                        // Check if confidence is high enough for logging
+                        if ($confidence >= $confidenceThreshold) {
+                            // Check rate limiting
+                            $stmt = $pdo->prepare("
+                                SELECT COUNT(*) as count 
+                                FROM pest_alerts 
+                                WHERE pest_type = ? 
+                                AND detected_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
+                            ");
+                            $stmt->execute([$pestType, $rateLimitSeconds]);
+                            $result = $stmt->fetch();
+
+                            // Log to database if not rate-limited
+                            if ($result['count'] == 0) {
+                                // Get pest-specific severity and actions from configuration
+                                $pestInfo = PestSeverityConfig::getPestInfo($pestType);
+                                $severity = $pestInfo['severity'];
+                                $suggestedActions = $pestInfo['actions'];
+
+                                // Insert detection into pest_alerts
+                                try {
+                                    $stmt = $pdo->prepare("
+                                        INSERT INTO pest_alerts 
+                                        (pest_type, location, severity, confidence_score, description, suggested_actions, detected_at, is_read, notification_sent) 
+                                        VALUES (?, ?, ?, ?, ?, ?, NOW(), FALSE, FALSE)
+                                    ");
+
+                                    $location = 'Webcam Detection';
+                                    $description = "Detected via real-time webcam monitoring with {$confidence}% confidence. Severity based on agricultural impact assessment.";
+
+                                    $logged = $stmt->execute([
+                                        $pestType,
+                                        $location,
+                                        $severity,
+                                        $confidence,
+                                        $description,
+                                        $suggestedActions
+                                    ]);
+                                } catch (PDOException $e) {
+                                    error_log("Database insert error: " . $e->getMessage());
+                                    $logged = false;
+                                }
+                            }
+
+                            // Add to high-confidence detections
+                            $detections[] = [
+                                'type' => $pestType,
+                                'confidence' => round($confidence, 2),
+                                'logged' => $logged,
+                                'severity' => $severity
+                            ];
+                        } else {
+                            // Low confidence - get severity but don't log
+                            $pestInfo = PestSeverityConfig::getPestInfo($pestType);
+                            $severity = $pestInfo['severity'];
+                        }
+
+                        // Add ALL detections to allDetections (for display purposes)
+                        $allDetections[] = [
+                            'type' => $pestType,
+                            'confidence' => round($confidence, 2),
+                            'logged' => $logged,
+                            'severity' => $severity,
+                            'is_low_confidence' => $confidence < $confidenceThreshold
+                        ];
+                    }
+
+                    // Clean up temp file
+                    @unlink($tempFile);
+
+                    // Return results with annotated image
+                    // detections = high confidence only (logged to DB)
+                    // all_detections = all detections including low confidence (for display)
+                    echo json_encode([
+                        'success' => true,
+                        'detections' => $detections,
+                        'all_detections' => $allDetections,
+                        'annotated_image' => $annotatedImagePath
+                    ]);
+                } catch (Exception $e) {
+                    // Clean up temp file on error
+                    @unlink($tempFile);
+                    throw $e;
                 }
                 break;
 
-            case 'get_alert_details':
-                $alertId = filter_var($_POST['alert_id'], FILTER_VALIDATE_INT);
+            case 'get_recent_detections':
+                // Get recent detections for live feed display
+                $limit = isset($_GET['limit']) ? intval($_GET['limit']) : 100;
+                $limit = max(1, min($limit, 200)); // Clamp between 1 and 200
 
-                if (!$alertId) {
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        id, 
+                        pest_type, 
+                        location, 
+                        severity, 
+                        confidence_score, 
+                        detected_at,
+                        is_read,
+                        read_at,
+                        suggested_actions,
+                        description
+                    FROM pest_alerts 
+                    WHERE location = 'Webcam Detection'
+                    ORDER BY detected_at DESC 
+                    LIMIT ?
+                ");
+                $stmt->execute([$limit]);
+                $detections = $stmt->fetchAll();
+
+                // Format for display and add pest info
+                foreach ($detections as &$detection) {
+                    $detection['confidence_score'] = round($detection['confidence_score'], 2);
+
+                    // Get pest info if suggested_actions is empty
+                    if (empty($detection['suggested_actions'])) {
+                        $pestInfo = PestSeverityConfig::getPestInfo($detection['pest_type']);
+                        $detection['suggested_actions'] = $pestInfo['actions'];
+                    }
+                }
+
+                echo json_encode([
+                    'success' => true,
+                    'detections' => $detections
+                ]);
+                break;
+
+            case 'get_detection_stats':
+                // Get detection statistics
+                $stmt = $pdo->query("
+                    SELECT 
+                        COUNT(*) as total_detections,
+                        COUNT(CASE WHEN DATE(detected_at) = CURDATE() THEN 1 END) as today_detections,
+                        COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_count,
+                        COUNT(CASE WHEN severity = 'high' THEN 1 END) as high_count
+                    FROM pest_alerts
+                    WHERE location = 'Webcam Detection'
+                ");
+                $stats = $stmt->fetch();
+
+                echo json_encode([
+                    'success' => true,
+                    'stats' => $stats
+                ]);
+                break;
+
+            case 'mark_as_read':
+                // Mark a specific alert as read
+                $alertId = isset($_POST['alert_id']) ? intval($_POST['alert_id']) : 0;
+
+                if ($alertId <= 0) {
                     throw new Exception('Invalid alert ID');
                 }
 
                 $stmt = $pdo->prepare("
-                    SELECT pa.*, c.camera_name, c.location as camera_location 
-                    FROM pest_alerts pa 
-                    LEFT JOIN cameras c ON pa.camera_id = c.id 
+                    UPDATE pest_alerts 
+                    SET is_read = TRUE, read_at = NOW(), read_by = ? 
+                    WHERE id = ?
+                ");
+                $result = $stmt->execute([$currentUser['id'], $alertId]);
+
+                if ($result) {
+                    echo json_encode(['success' => true, 'message' => 'Alert marked as read']);
+                } else {
+                    throw new Exception('Failed to mark alert as read');
+                }
+                break;
+
+            case 'mark_all_as_read':
+                // Mark all alerts as read
+                $stmt = $pdo->prepare("
+                    UPDATE pest_alerts 
+                    SET is_read = TRUE, read_at = NOW(), read_by = ? 
+                    WHERE is_read = FALSE
+                ");
+                $result = $stmt->execute([$currentUser['id']]);
+
+                if ($result) {
+                    $count = $stmt->rowCount();
+                    echo json_encode(['success' => true, 'message' => "{$count} alerts marked as read"]);
+                } else {
+                    throw new Exception('Failed to mark alerts as read');
+                }
+                break;
+
+            case 'get_unread_count':
+                // Get count of unread notifications
+                $stmt = $pdo->query("
+                    SELECT 
+                        COUNT(*) as total_unread,
+                        COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_unread,
+                        COUNT(CASE WHEN severity = 'high' THEN 1 END) as high_unread,
+                        COUNT(CASE WHEN severity = 'medium' THEN 1 END) as medium_unread,
+                        COUNT(CASE WHEN severity = 'low' THEN 1 END) as low_unread
+                    FROM pest_alerts 
+                    WHERE is_read = FALSE
+                ");
+                $counts = $stmt->fetch();
+
+                echo json_encode([
+                    'success' => true,
+                    'unread' => $counts
+                ]);
+                break;
+
+            case 'get_alert_details':
+                // Get detailed information about a specific alert
+                $alertId = isset($_GET['alert_id']) ? intval($_GET['alert_id']) : 0;
+
+                if ($alertId <= 0) {
+                    throw new Exception('Invalid alert ID');
+                }
+
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        pa.*,
+                        u.username as read_by_username
+                    FROM pest_alerts pa
+                    LEFT JOIN users u ON pa.read_by = u.id
                     WHERE pa.id = ?
                 ");
                 $stmt->execute([$alertId]);
                 $alert = $stmt->fetch();
 
-                if ($alert) {
-                    echo json_encode(['success' => true, 'alert' => $alert]);
-                } else {
+                if (!$alert) {
                     throw new Exception('Alert not found');
                 }
+
+                // Get pest info from configuration
+                $pestInfo = PestSeverityConfig::getPestInfo($alert['pest_type']);
+
+                echo json_encode([
+                    'success' => true,
+                    'alert' => $alert,
+                    'pest_info' => $pestInfo
+                ]);
                 break;
 
-            case 'get_cameras':
-                $stmt = $pdo->query("SELECT * FROM cameras ORDER BY location, camera_name");
-                $cameras = $stmt->fetchAll();
-                echo json_encode(['success' => true, 'cameras' => $cameras]);
-                break;
-
-            case 'update_camera_settings':
+            case 'clear_webcam_detections':
+                // Clear webcam detections
                 if (!hasRole('admin') && !hasRole('farmer')) {
                     throw new Exception('Insufficient permissions');
                 }
 
-                $cameraId = filter_var($_POST['camera_id'], FILTER_VALIDATE_INT);
-                $cameraName = trim($_POST['camera_name'] ?? '');
-                $location = trim($_POST['location'] ?? '');
-                $ipAddress = filter_var($_POST['ip_address'] ?? '', FILTER_VALIDATE_IP);
-                $port = filter_var($_POST['port'] ?? 80, FILTER_VALIDATE_INT);
-                $username = trim($_POST['username'] ?? '');
-                $password = $_POST['password'] ?? '';
-                $cameraType = trim($_POST['camera_type'] ?? 'ip_camera');
-                $resolution = trim($_POST['resolution'] ?? '1920x1080');
-                $fps = filter_var($_POST['fps'] ?? 30, FILTER_VALIDATE_INT);
-                $detectionEnabled = isset($_POST['detection_enabled']) ? 1 : 0;
-                $detectionSensitivity = trim($_POST['detection_sensitivity'] ?? 'medium');
-
-                if (!$cameraId || !$cameraName || !$location) {
-                    throw new Exception('Required fields missing');
-                }
-
-                if (!in_array($cameraType, ['ip_camera', 'usb_camera', 'rtsp_stream'])) {
-                    throw new Exception('Invalid camera type');
-                }
-
-                if (!in_array($detectionSensitivity, ['low', 'medium', 'high'])) {
-                    throw new Exception('Invalid detection sensitivity');
-                }
-
-                // Hash password if provided
-                $hashedPassword = !empty($password) ? password_hash($password, PASSWORD_DEFAULT) : null;
-
-                if ($hashedPassword) {
-                    $stmt = $pdo->prepare("
-                        UPDATE cameras SET 
-                        camera_name = ?, location = ?, ip_address = ?, port = ?, 
-                        username = ?, password = ?, camera_type = ?, resolution = ?, 
-                        fps = ?, detection_enabled = ?, detection_sensitivity = ?, 
-                        updated_at = NOW() 
-                        WHERE id = ?
-                    ");
-                    $result = $stmt->execute([
-                        $cameraName,
-                        $location,
-                        $ipAddress,
-                        $port,
-                        $username,
-                        $hashedPassword,
-                        $cameraType,
-                        $resolution,
-                        $fps,
-                        $detectionEnabled,
-                        $detectionSensitivity,
-                        $cameraId
-                    ]);
-                } else {
-                    $stmt = $pdo->prepare("
-                        UPDATE cameras SET 
-                        camera_name = ?, location = ?, ip_address = ?, port = ?, 
-                        username = ?, camera_type = ?, resolution = ?, 
-                        fps = ?, detection_enabled = ?, detection_sensitivity = ?, 
-                        updated_at = NOW() 
-                        WHERE id = ?
-                    ");
-                    $result = $stmt->execute([
-                        $cameraName,
-                        $location,
-                        $ipAddress,
-                        $port,
-                        $username,
-                        $cameraType,
-                        $resolution,
-                        $fps,
-                        $detectionEnabled,
-                        $detectionSensitivity,
-                        $cameraId
-                    ]);
-                }
+                $stmt = $pdo->prepare("DELETE FROM pest_alerts WHERE location = 'Webcam Detection'");
+                $result = $stmt->execute();
 
                 if ($result) {
-                    echo json_encode(['success' => true, 'message' => 'Camera settings updated successfully']);
+                    echo json_encode(['success' => true, 'message' => 'Webcam detections cleared successfully']);
                 } else {
-                    throw new Exception('Failed to update camera settings');
+                    throw new Exception('Failed to clear detections');
                 }
                 break;
 
-            case 'test_camera_connection':
-                $ipAddress = filter_var($_POST['ip_address'] ?? '', FILTER_VALIDATE_IP);
-                $port = filter_var($_POST['port'] ?? 80, FILTER_VALIDATE_INT);
+            case 'check_service_health':
+                // Check if Flask service is running
+                $detector = new YOLODetector2('http://127.0.0.1:5000');
+                $isHealthy = $detector->isHealthy();
 
-                if (!$ipAddress || !$port) {
-                    throw new Exception('Invalid IP address or port');
-                }
-
-                // Simulate connection test (in real implementation, this would actually test the connection)
-                // For demo purposes, we'll simulate success most of the time
-                $success = rand(1, 10) > 2; // 80% success rate for demo
-
-                if ($success) {
-                    echo json_encode(['success' => true, 'message' => "Camera connection successful! ({$ipAddress}:{$port})"]);
-                } else {
-                    echo json_encode(['success' => false, 'message' => 'Connection failed. Please check IP address and credentials.']);
-                }
-                break;
-
-            case 'capture_test_image':
-                $cameraId = filter_var($_POST['camera_id'] ?? 0, FILTER_VALIDATE_INT);
-
-                if (!$cameraId) {
-                    throw new Exception('Invalid camera ID');
-                }
-
-                // Get camera info
-                $stmt = $pdo->prepare("SELECT camera_name, detection_enabled FROM cameras WHERE id = ?");
-                $stmt->execute([$cameraId]);
-                $camera = $stmt->fetch();
-
-                if (!$camera) {
-                    throw new Exception('Camera not found');
-                }
-
-                // Simulate image capture and AI analysis
-                $confidence = rand(70, 95);
-                $pestsDetected = rand(0, 10) > 7; // 30% chance of detecting pests for demo
-
-                if ($pestsDetected && $camera['detection_enabled']) {
-                    $pestTypes = ['Aphids', 'Caterpillars', 'Whiteflies', 'Spider Mites', 'Thrips', 'Beetles'];
-                    $detectedPest = $pestTypes[array_rand($pestTypes)];
-                    $severityLevels = ['low', 'medium', 'high'];
-                    $severity = $severityLevels[array_rand($severityLevels)];
-
-                    echo json_encode([
-                        'success' => true,
-                        'message' => "Test image captured from {$camera['camera_name']}",
-                        'analysis' => [
-                            'pests_detected' => true,
-                            'pest_type' => $detectedPest,
-                            'confidence' => $confidence,
-                            'severity' => $severity,
-                            'recommendation' => 'Immediate attention required - Consider applying appropriate pest control measures'
-                        ]
-                    ]);
-                } else {
-                    echo json_encode([
-                        'success' => true,
-                        'message' => "Test image captured from {$camera['camera_name']}",
-                        'analysis' => [
-                            'pests_detected' => false,
-                            'confidence' => $confidence,
-                            'recommendation' => 'No pests detected - Continue regular monitoring'
-                        ]
-                    ]);
-                }
-                break;
-
-            case 'get_camera_status':
-                $stmt = $pdo->query("
-                    SELECT 
-                        COUNT(*) as total_cameras,
-                        COUNT(CASE WHEN status = 'online' THEN 1 END) as online_cameras,
-                        COUNT(CASE WHEN status = 'offline' THEN 1 END) as offline_cameras,
-                        COUNT(CASE WHEN status = 'error' THEN 1 END) as error_cameras,
-                        COUNT(CASE WHEN detection_enabled = 1 THEN 1 END) as detection_enabled_cameras
-                    FROM cameras
-                ");
-                $stats = $stmt->fetch();
-                echo json_encode(['success' => true, 'stats' => $stats]);
-                break;
-
-            case 'toggle_camera_detection':
-                if (!hasRole('admin') && !hasRole('farmer')) {
-                    throw new Exception('Insufficient permissions');
-                }
-
-                $cameraId = filter_var($_POST['camera_id'], FILTER_VALIDATE_INT);
-                $enabled = isset($_POST['enabled']) ? 1 : 0;
-
-                if (!$cameraId) {
-                    throw new Exception('Invalid camera ID');
-                }
-
-                $stmt = $pdo->prepare("UPDATE cameras SET detection_enabled = ?, updated_at = NOW() WHERE id = ?");
-                $result = $stmt->execute([$enabled, $cameraId]);
-
-                if ($result) {
-                    $status = $enabled ? 'enabled' : 'disabled';
-                    echo json_encode(['success' => true, 'message' => "Camera detection {$status} successfully"]);
-                } else {
-                    throw new Exception('Failed to update camera detection status');
-                }
+                echo json_encode([
+                    'success' => true,
+                    'healthy' => $isHealthy,
+                    'message' => $isHealthy ? 'Service is running' : 'Service is not available'
+                ]);
                 break;
 
             default:
@@ -277,147 +386,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     exit;
 }
 
-// Get filter parameters
-$statusFilter = $_GET['status'] ?? 'all';
-$severityFilter = $_GET['severity'] ?? 'all';
-$sortBy = $_GET['sort'] ?? 'detected_at';
-$sortOrder = $_GET['order'] ?? 'desc';
-$searchQuery = $_GET['search'] ?? '';
-
-// Build WHERE clause for filters
-$whereConditions = [];
-$params = [];
-
-if ($statusFilter !== 'all') {
-    $whereConditions[] = "status = ?";
-    $params[] = $statusFilter;
-}
-
-if ($severityFilter !== 'all') {
-    $whereConditions[] = "severity = ?";
-    $params[] = $severityFilter;
-}
-
-if (!empty($searchQuery)) {
-    $whereConditions[] = "(pest_type LIKE ? OR location LIKE ? OR description LIKE ?)";
-    $searchParam = '%' . $searchQuery . '%';
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-    $params[] = $searchParam;
-}
-
-$whereClause = !empty($whereConditions) ? 'WHERE ' . implode(' AND ', $whereConditions) : '';
-
-// Validate sort parameters
-$allowedSortFields = ['detected_at', 'pest_type', 'location', 'severity', 'status'];
-$sortBy = in_array($sortBy, $allowedSortFields) ? $sortBy : 'detected_at';
-$sortOrder = in_array(strtolower($sortOrder), ['asc', 'desc']) ? strtolower($sortOrder) : 'desc';
-
-// Get pest alerts with filtering and sorting
-function getPestAlerts($whereClause, $params, $sortBy, $sortOrder)
-{
-    try {
-        global $pdo;
-        $sql = "SELECT * FROM pest_alerts $whereClause ORDER BY $sortBy $sortOrder";
-        $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return $stmt->fetchAll();
-    } catch (Exception $e) {
-        error_log("Failed to get pest alerts: " . $e->getMessage());
-        return [];
-    }
-}
-
-// Get alert statistics
-function getAlertStatistics()
-{
-    try {
-        global $pdo;
-
-        $stats = [];
-
-        // Total alerts
-        $stmt = $pdo->query("SELECT COUNT(*) as total FROM pest_alerts");
-        $stats['total'] = $stmt->fetch()['total'];
-
-        // Alerts by status
-        $stmt = $pdo->query("
-            SELECT status, COUNT(*) as count 
-            FROM pest_alerts 
-            GROUP BY status
-        ");
-        $statusCounts = $stmt->fetchAll();
-        $stats['by_status'] = [];
-        foreach ($statusCounts as $status) {
-            $stats['by_status'][$status['status']] = $status['count'];
-        }
-
-        // Alerts by severity
-        $stmt = $pdo->query("
-            SELECT severity, COUNT(*) as count 
-            FROM pest_alerts 
-            GROUP BY severity
-        ");
-        $severityCounts = $stmt->fetchAll();
-        $stats['by_severity'] = [];
-        foreach ($severityCounts as $severity) {
-            $stats['by_severity'][$severity['severity']] = $severity['count'];
-        }
-
-        // Recent alerts (last 24 hours)
-        $stmt = $pdo->query("
-            SELECT COUNT(*) as recent 
-            FROM pest_alerts 
-            WHERE detected_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)
-        ");
-        $stats['recent'] = $stmt->fetch()['recent'];
-
-        // Critical alerts
-        $stmt = $pdo->query("
-            SELECT COUNT(*) as critical 
-            FROM pest_alerts 
-            WHERE severity = 'critical' AND status != 'resolved'
-        ");
-        $stats['critical'] = $stmt->fetch()['critical'];
-
-        return $stats;
-    } catch (Exception $e) {
-        error_log("Failed to get alert statistics: " . $e->getMessage());
-        return [
-            'total' => 0,
-            'by_status' => [],
-            'by_severity' => [],
-            'recent' => 0,
-            'critical' => 0
-        ];
-    }
-}
-
-// Get new alerts for notification panel
-function getNewAlerts()
-{
-    try {
-        global $pdo;
-        $stmt = $pdo->query("
-            SELECT * FROM pest_alerts 
-            WHERE status = 'new' 
-            ORDER BY detected_at DESC 
-            LIMIT 5
-        ");
-        return $stmt->fetchAll();
-    } catch (Exception $e) {
-        error_log("Failed to get new alerts: " . $e->getMessage());
-        return [];
-    }
-}
-
-// Get data
-$pestAlerts = getPestAlerts($whereClause, $params, $sortBy, $sortOrder);
-$alertStats = getAlertStatistics();
-$newAlerts = getNewAlerts();
-
 // Set page title
-$pageTitle = 'Pest Detection - IoT Farm Monitoring System';
+$pageTitle = 'Real-Time Pest Detection (Flask Optimized) - IoT Farm Monitoring System';
 
 // Include header
 include 'includes/header.php';
@@ -425,1857 +395,1432 @@ include 'includes/header.php';
 
 <?php include 'includes/navigation.php'; ?>
 
-<!-- Pest Detection Content -->
+<!-- Real-Time Pest Detection Content -->
 <div class="p-4 max-w-7xl mx-auto">
+
+    <!-- Notification Panel (Hidden by default) -->
+    <div id="notification-panel" class="hidden mb-6 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg overflow-hidden">
+        <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-800">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                    <i class="fas fa-bell text-blue-600 mr-2"></i>
+                    Unread Notifications
+                    <span id="notification-count" class="ml-3 px-3 py-1 bg-blue-600 text-white text-xs font-medium rounded-full">0</span>
+                </h3>
+                <button onclick="toggleNotificationPanel()" class="text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+        </div>
+        <div id="notification-list" class="max-h-96 overflow-y-auto p-4">
+            <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                <i class="fas fa-inbox text-4xl mb-2"></i>
+                <p>No unread notifications</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <!-- Left Column -->
-        <div class="lg:col-span-2 space-y-4">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+        <!-- Left Column - Live Feed -->
+        <div class="lg:col-span-2 space-y-6">
             <!-- Live Camera Feed Section -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-                <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-lg">
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-800">
                     <div class="flex items-center justify-between">
-                        <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
-                            <i class="fas fa-video text-red-600 mr-2"></i>
-                            Live Pest Detection Feed
-                            <span class="ml-2 px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs font-medium rounded-full animate-pulse">
-                                LIVE
+                        <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                            <i class="fas fa-video text-blue-600 mr-2"></i>
+                            Live Camera Feed
+                            <span id="camera-status" class="ml-3 px-3 py-1 bg-gray-400 text-white text-xs font-medium rounded-full">
+                                STARTING...
                             </span>
                         </h3>
+                        <div class="flex items-center gap-3">
+                            <span id="camera-name" class="text-sm text-gray-600 dark:text-gray-400"></span>
+                            <button id="camera-settings-btn" onclick="openCameraSettings()" class="px-3 py-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors" title="Camera Settings">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detection Control Bar -->
+                <div class="px-6 py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-3">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">AI Pest Detection:</span>
+                            <span id="detection-status" class="px-3 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-full">
+                                INACTIVE
+                            </span>
+                        </div>
+                        <div class="flex items-center gap-3">
+                            <button id="start-detection-btn" onclick="startDetection()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors">
+                                <i class="fas fa-play mr-2"></i>Start Detection
+                            </button>
+                            <button id="stop-detection-btn" onclick="stopDetection()" class="hidden px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">
+                                <i class="fas fa-stop mr-2"></i>Stop Detection
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="relative bg-black">
+                    <!-- Video Element -->
+                    <video id="video-element" autoplay playsinline class="w-full h-auto" style="transform: scaleX(-1); max-height: 500px;"></video>
+                    <canvas id="capture-canvas" class="hidden"></canvas>
+
+                    <!-- Placeholder when camera is off -->
+                    <div id="camera-placeholder" class="w-full aspect-video flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
+                        <div class="text-center text-white">
+                            <div class="animate-pulse">
+                                <i class="fas fa-video text-6xl mb-4 text-blue-400"></i>
+                                <h4 class="text-xl font-semibold mb-2">Initializing Camera...</h4>
+                                <p class="text-gray-400">Please wait while we connect to your camera</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Detection Overlay -->
+                    <div id="ai-overlay" class="hidden absolute top-4 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
+                        <div class="flex items-center gap-2 mb-1">
+                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                            <span class="text-sm font-medium">AI Detection: ACTIVE</span>
+                        </div>
+                        <div class="text-xs text-gray-300">
+                            Model: YOLO | Scanning every 5 secolnds
+                        </div>
+                    </div>
+
+                    <!-- Stats Overlay -->
+                    <div id="stats-overlay" class="hidden absolute top-4 right-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
+                        <div class="text-xs space-y-1">
+                            <div class="flex justify-between gap-4">
+                                <span>Scans:</span>
+                                <span class="font-medium" id="scan-count">0</span>
+                            </div>
+                            <div class="flex justify-between gap-4">
+                                <span>Detections:</span>
+                                <span class="font-medium text-yellow-400" id="detection-count">0</span>
+                            </div>
+                            <div class="flex justify-between gap-4">
+                                <span>Uptime:</span>
+                                <span class="font-medium text-green-400" id="uptime">00:00</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Bar -->
+                <div class="bg-gray-50 dark:bg-gray-700 px-6 py-3 border-t border-gray-200 dark:border-gray-600">
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-4">
+                            <div class="flex items-center gap-2">
+                                <div id="stream-status-dot" class="w-2 h-2 bg-gray-400 rounded-full"></div>
+                                <span class="text-gray-600 dark:text-gray-400">Stream: <span id="stream-status" class="font-medium text-gray-900 dark:text-white">Inactive</span></span>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <i class="fas fa-brain text-purple-600 dark:text-purple-400"></i>
+                                <span class="text-gray-600 dark:text-gray-400">AI: <span id="ai-status" class="font-medium text-gray-900 dark:text-white">Standby</span></span>
+                            </div>
+                        </div>
                         <div class="flex items-center gap-2">
-                            <select id="active-camera-select" class="text-xs border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded px-2 py-1 focus:ring-2 focus:ring-blue-500">
-                                <option value="1">Greenhouse A - North</option>
-                                <option value="2">Greenhouse A - South</option>
-                                <option value="4">Field A - Section 1</option>
-                                <option value="6">Greenhouse A - Bed 1</option>
-                            </select>
-                            <button id="stop-feed-btn" onclick="stopLiveFeed()" class="px-3 py-1 bg-red-600 hover:bg-red-700 text-white text-xs rounded transition-colors">
-                                <i class="fas fa-stop mr-1"></i>Stop
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="relative">
-                    <!-- Live Feed Display -->
-                    <div id="live-feed-container" class="bg-black aspect-video flex items-center justify-center relative overflow-hidden">
-                        <div id="camera-feed" class="w-full h-full bg-gradient-to-br from-gray-800 to-gray-900 flex items-center justify-center">
-                            <div class="text-center text-white">
-                                <div class="animate-pulse mb-4">
-                                    <i class="fas fa-video text-6xl mb-4 text-blue-400"></i>
-                                    <h4 class="text-xl font-semibold mb-2">AI Pest Detection Active</h4>
-                                    <p class="text-gray-300">Greenhouse A - North Camera</p>
-                                    <div class="mt-4 flex items-center justify-center gap-2">
-                                        <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                                        <span class="text-sm">Recording & Analyzing</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- AI Detection Overlay -->
-                        <div class="absolute top-4 left-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg">
-                            <div class="flex items-center gap-2 mb-1">
-                                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                                <span class="text-sm font-medium">AI Detection: ON</span>
-                            </div>
-                            <div class="text-xs text-gray-300">
-                                Model: YoloV11 | Confidence: 94.7%
-                            </div>
-                        </div>
-
-                        <!-- Live Stats Overlay -->
-                        <div class="absolute top-4 right-4 bg-black bg-opacity-75 text-white px-3 py-2 rounded-lg">
-                            <div class="text-xs space-y-1">
-                                <div class="flex justify-between gap-4">
-                                    <span>Resolution:</span>
-                                    <span class="font-medium">1920x1080</span>
-                                </div>
-                                <div class="flex justify-between gap-4">
-                                    <span>FPS:</span>
-                                    <span class="font-medium">30</span>
-                                </div>
-                                <div class="flex justify-between gap-4">
-                                    <span>Uptime:</span>
-                                    <span class="font-medium text-green-400" id="feed-uptime">00:05:23</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Detection Boxes (simulated) -->
-                        <div id="detection-boxes" class="absolute inset-0 pointer-events-none">
-                            <!-- Detection boxes will be dynamically added here -->
-                        </div>
-
-                        <!-- Bottom Controls Overlay -->
-                        <div class="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3">
-                            <button onclick="captureSnapshot()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg transition-colors">
-                                <i class="fas fa-camera mr-2"></i>Capture
-                            </button>
-                            <button onclick="toggleDetectionBoxes()" class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-sm rounded-lg transition-colors">
-                                <i class="fas fa-square mr-2"></i>Toggle Boxes
-                            </button>
-                            <button onclick="fullscreenFeed()" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm rounded-lg transition-colors">
-                                <i class="fas fa-expand mr-2"></i>Fullscreen
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Feed Status Bar -->
-                    <div class="bg-gray-50 dark:bg-gray-700 px-4 py-2 border-t border-gray-200 dark:border-gray-600">
-                        <div class="flex items-center justify-between text-xs">
-                            <div class="flex items-center gap-4">
-                                <div class="flex items-center gap-2">
-                                    <div class="w-2 h-2 bg-green-500 rounded-full"></div>
-                                    <span class="text-gray-600 dark:text-gray-400">Stream Active</span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-brain text-purple-600 dark:text-purple-400"></i>
-                                    <span class="text-gray-600 dark:text-gray-400">AI Processing: <span class="font-medium text-gray-900 dark:text-white">Real-time</span></span>
-                                </div>
-                                <div class="flex items-center gap-2">
-                                    <i class="fas fa-bug text-yellow-600 dark:text-yellow-400"></i>
-                                    <span class="text-gray-600 dark:text-gray-400">Detections Today: <span class="font-medium text-gray-900 dark:text-white" id="detections-count">3</span></span>
-                                </div>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <span class="text-gray-600 dark:text-gray-400">Last Scan:</span>
-                                <span class="font-medium text-gray-900 dark:text-white" id="last-scan-time">2 seconds ago</span>
-                            </div>
+                            <span class="text-gray-600 dark:text-gray-400">Last Scan:</span>
+                            <span id="last-scan" class="font-medium text-gray-900 dark:text-white">Never</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Recent Detection History -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-4 flex items-center">
-                    <i class="fas fa-history text-blue-600 mr-2"></i>
-                    Recent Detections (Live Feed)
-                </h3>
-                <div class="space-y-3" id="recent-detections">
-                    <div class="flex items-start gap-3 p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                        <div class="w-8 h-8 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <i class="fas fa-bug text-yellow-600 dark:text-yellow-400 text-sm"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex items-center justify-between mb-1">
-                                <h4 class="text-sm font-medium text-gray-900 dark:text-white">Aphids Detected</h4>
-                                <span class="text-xs text-gray-500">2 min ago</span>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">Greenhouse A - North | Confidence: 89.3%</p>
-                            <div class="flex items-center gap-2">
-                                <span class="px-2 py-1 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs font-medium rounded-full">Medium Severity</span>
-                                <button onclick="viewDetectionDetails(1)" class="text-blue-600 dark:text-blue-400 hover:text-blue-700 text-xs font-medium">View Details</button>
-                            </div>
-                        </div>
+            <!-- Recent Detections -->
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg">
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
+                        <i class="fas fa-history text-blue-600 mr-2"></i>
+                        Recent Detections
+                        <span id="detection-total-count" class="ml-3 px-2 py-1 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-full">0</span>
+                    </h3>
+                </div>
+                <div id="recent-detections" class="divide-y divide-gray-200 dark:divide-gray-700 max-h-96 overflow-y-auto">
+                    <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <i class="fas fa-inbox text-4xl mb-2"></i>
+                        <p>No detections yet. Start monitoring to see results here.</p>
                     </div>
-
-                    <div class="flex items-start gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                        <div class="w-8 h-8 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <i class="fas fa-bug text-red-600 dark:text-red-400 text-sm"></i>
+                </div>
+                <!-- Pagination Controls -->
+                <div id="detection-pagination" class="hidden px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700">
+                    <div class="flex items-center justify-between text-sm">
+                        <div class="text-gray-600 dark:text-gray-400">
+                            Showing <span id="detection-showing-start">1</span> to <span id="detection-showing-end">10</span> of <span id="detection-total">0</span>
                         </div>
-                        <div class="flex-1">
-                            <div class="flex items-center justify-between mb-1">
-                                <h4 class="text-sm font-medium text-gray-900 dark:text-white">Spider Mites Detected</h4>
-                                <span class="text-xs text-gray-500">8 min ago</span>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">Greenhouse A - North | Confidence: 94.1%</p>
-                            <div class="flex items-center gap-2">
-                                <span class="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs font-medium rounded-full">High Severity</span>
-                                <button onclick="viewDetectionDetails(2)" class="text-blue-600 dark:text-blue-400 hover:text-blue-700 text-xs font-medium">View Details</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="flex items-start gap-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                        <div class="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <i class="fas fa-shield-alt text-green-600 dark:text-green-400 text-sm"></i>
-                        </div>
-                        <div class="flex-1">
-                            <div class="flex items-center justify-between mb-1">
-                                <h4 class="text-sm font-medium text-gray-900 dark:text-white">No Threats Detected</h4>
-                                <span class="text-xs text-gray-500">15 min ago</span>
-                            </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">Scan completed successfully | Confidence: 96.7%</p>
-                            <div class="flex items-center gap-2">
-                                <span class="px-2 py-1 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">All Clear</span>
-                            </div>
+                        <div class="flex items-center gap-2">
+                            <button onclick="changeDetectionPage('prev')" id="detection-prev-btn" class="px-3 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" disabled>
+                                <i class="fas fa-chevron-left"></i>
+                            </button>
+                            <span class="text-gray-700 dark:text-gray-300">
+                                Page <span id="detection-current-page">1</span> of <span id="detection-total-pages">1</span>
+                            </span>
+                            <button onclick="changeDetectionPage('next')" id="detection-next-btn" class="px-3 py-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors" disabled>
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
             </div>
-
-            <!-- New Alerts Notification Panel -->
-            <?php if (!empty($newAlerts)): ?>
-                <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
-                    <div class="flex items-start gap-3">
-                        <div class="w-8 h-8 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-sm"></i>
-                        </div>
-                        <div class="flex-1">
-                            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-2">
-                                New Pest Alerts Detected
-                            </h3>
-                            <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                                <?php echo count($newAlerts); ?> new pest alert(s) require immediate attention.
-                            </p>
-                            <div class="space-y-2">
-                                <?php foreach (array_slice($newAlerts, 0, 3) as $alert): ?>
-                                    <div class="flex items-center justify-between bg-white/50 dark:bg-gray-800/50 rounded-lg p-2">
-                                        <div class="flex items-center gap-2">
-                                            <span class="px-2 py-1 bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200 text-xs font-medium rounded-full">
-                                                <?php echo ucfirst($alert['severity']); ?>
-                                            </span>
-                                            <span class="text-sm font-medium text-gray-900 dark:text-white">
-                                                <?php echo htmlspecialchars($alert['pest_type']); ?>
-                                            </span>
-                                            <span class="text-xs text-gray-600 dark:text-gray-400">
-                                                at <?php echo htmlspecialchars($alert['location']); ?>
-                                            </span>
-                                        </div>
-                                        <button onclick="viewAlertDetails(<?php echo $alert['id']; ?>)"
-                                            class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs font-medium">
-                                            View
-                                        </button>
-                                    </div>
-                                <?php endforeach; ?>
-
-                                <?php if (count($newAlerts) > 3): ?>
-                                    <div class="text-center pt-2">
-                                        <button onclick="filterByStatus('new')"
-                                            class="text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 text-xs font-medium">
-                                            View all <?php echo count($newAlerts); ?> new alerts →
-                                        </button>
-                                    </div>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            <?php endif; ?>
-
-            
         </div>
 
-        <!-- Right Column -->
-        <div class="space-y-4">
-            <!-- Current Detection Status -->
-            <div class="bg-green-600 text-white rounded-xl p-4">
-                <h3 class="text-white/80 text-xs font-medium mb-3">Live Detection Status</h3>
-                <div class="space-y-3">
+        <!-- Right Column - Stats & Info -->
+        <div class="space-y-6">
+            <!-- Detection Statistics -->
+            <div class="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl p-6 shadow-lg">
+                <h3 class="text-white/80 text-sm font-medium mb-4">Detection Statistics</h3>
+                <div class="space-y-4">
                     <div class="text-center">
-                        <div class="text-2xl font-bold mb-1">
-                            <?php echo $alertStats['total'] > 0 ? $alertStats['critical'] + ($alertStats['by_status']['new'] ?? 0) : 0; ?>
-                        </div>
-                        <div class="text-white/80 text-xs mb-3">Active Threats</div>
+                        <div class="text-3xl font-bold mb-1" id="total-detections">0</div>
+                        <div class="text-white/80 text-sm">Total Detections</div>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div class="text-center p-2 bg-white/10 rounded">
-                            <div class="font-bold"><?php echo $alertStats['by_status']['new'] ?? 0; ?></div>
-                            <div class="text-white/80">New</div>
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div class="text-center p-3 bg-white/10 rounded-lg">
+                            <div class="font-bold text-lg" id="today-detections">0</div>
+                            <div class="text-white/80">Today</div>
                         </div>
-                        <div class="text-center p-2 bg-white/10 rounded">
-                            <div class="font-bold"><?php echo $alertStats['by_status']['resolved'] ?? 0; ?></div>
-                            <div class="text-white/80">Resolved</div>
+                        <div class="text-center p-3 bg-white/10 rounded-lg">
+                            <div class="font-bold text-lg" id="critical-detections">0</div>
+                            <div class="text-white/80">Critical</div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!-- Camera Status Summary -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Camera Network</h3>
+            <!-- Latest Detection -->
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Latest Detection</h3>
+
+                <!-- Detection Preview -->
+                <div id="detection-preview" class="relative bg-gray-100 dark:bg-gray-700 rounded-lg overflow-hidden aspect-video mb-4">
+                    <div id="no-detection-placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400 dark:text-gray-500">
+                        <i class="fas fa-bug text-4xl mb-2"></i>
+                        <p class="text-sm">No detections yet</p>
+                    </div>
+                    <img id="detection-image" class="hidden w-full h-full object-contain" alt="Latest detection">
+                </div>
+
+                <!-- Detection Info -->
+                <div id="detection-info" class="hidden space-y-2 mb-4">
+                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Pest Type:</span>
+                        <span id="detection-label" class="text-sm font-semibold text-gray-900 dark:text-white">-</span>
+                    </div>
+                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Confidence:</span>
+                        <span id="detection-confidence" class="text-sm font-semibold text-gray-900 dark:text-white">-</span>
+                    </div>
+                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <span class="text-sm text-gray-600 dark:text-gray-400">Time:</span>
+                        <span id="detection-time" class="text-sm font-semibold text-gray-900 dark:text-white">-</span>
+                    </div>
+                </div>
+            </div>
+
+
+            <!-- System Status -->
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-lg">
+                <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">System Status</h3>
                 <div class="space-y-3">
-                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div class="flex items-center gap-2">
-                            <div class="w-6 h-6 bg-green-100 dark:bg-green-900 rounded flex items-center justify-center">
-                                <i class="fas fa-video text-green-600 dark:text-green-400 text-xs"></i>
-                            </div>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">Online Cameras</span>
-                        </div>
-                        <span class="text-xs font-bold text-gray-900 dark:text-white">5/6</span>
-                    </div>
-                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                        <div class="flex items-center gap-2">
-                            <div class="w-6 h-6 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center">
-                                <i class="fas fa-brain text-blue-600 dark:text-blue-400 text-xs"></i>
-                            </div>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">AI Detection</span>
-                        </div>
-                        <span class="text-xs font-bold text-gray-900 dark:text-white">Active</span>
-                    </div>
-                    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                        <div class="flex items-center gap-2">
-                            <div class="w-6 h-6 bg-purple-100 dark:bg-purple-900 rounded flex items-center justify-center">
-                                <i class="fas fa-clock text-purple-600 dark:text-purple-400 text-xs"></i>
-                            </div>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">Last Scan</span>
-                        </div>
-                        <span class="text-xs font-bold text-gray-900 dark:text-white">2 min ago</span>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Quick Actions</h3>
-                <div class="space-y-2">
-                    <button onclick="toggleCameraSettings()" class="w-full text-left p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
-                        <div class="flex items-center gap-3">
                             <div class="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
                                 <i class="fas fa-video text-blue-600 dark:text-blue-400 text-sm"></i>
                             </div>
-                            <div>
-                                <p class="text-sm font-medium text-gray-900 dark:text-white">Camera Settings</p>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">Configure detection cameras</p>
-                            </div>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">Camera</span>
                         </div>
-                    </button>
-                    <button class="w-full text-left p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors">
-                        <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-download text-green-600 dark:text-green-400 text-sm"></i>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium text-gray-900 dark:text-white">Export Report</p>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">Download detection data</p>
-                            </div>
-                        </div>
-                    </button>
-                    <button class="w-full text-left p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors">
-                        <div class="flex items-center gap-3">
-                            <div class="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-cog text-purple-600 dark:text-purple-400 text-sm"></i>
-                            </div>
-                            <div>
-                                <p class="text-sm font-medium text-gray-900 dark:text-white">AI Settings</p>
-                                <p class="text-xs text-gray-600 dark:text-gray-400">Adjust detection sensitivity</p>
-                            </div>
-                        </div>
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Filters and Search -->
-    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 mb-4">
-        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <!-- Search -->
-            <div class="flex-1 max-w-md">
-                <div class="relative">
-                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <i class="fas fa-search text-gray-400 dark:text-gray-500"></i>
+                        <span id="camera-status-badge" class="text-xs font-bold text-gray-600 dark:text-gray-400">Not Connected</span>
                     </div>
-                    <input type="text"
-                        id="search-input"
-                        placeholder="Search pest type, location, or description..."
-                        value="<?php echo htmlspecialchars($searchQuery); ?>"
-                        class="pl-10 pr-4 py-2 w-full text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-brain text-purple-600 dark:text-purple-400 text-sm"></i>
+                            </div>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">AI Model</span>
+                        </div>
+                        <span class="text-xs font-bold text-green-600 dark:text-green-400">Ready</span>
+                    </div>
+                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-database text-green-600 dark:text-green-400 text-sm"></i>
+                            </div>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">Database</span>
+                        </div>
+                        <span class="text-xs font-bold text-green-600 dark:text-green-400">Connected</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- Filters -->
-            <div class="flex flex-wrap gap-3">
-                <select id="status-filter"
-                    class="text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>All Status</option>
-                    <option value="new" <?php echo $statusFilter === 'new' ? 'selected' : ''; ?>>New</option>
-                    <option value="acknowledged" <?php echo $statusFilter === 'acknowledged' ? 'selected' : ''; ?>>Acknowledged</option>
-                    <option value="resolved" <?php echo $statusFilter === 'resolved' ? 'selected' : ''; ?>>Resolved</option>
-                </select>
-
-                <select id="severity-filter"
-                    class="text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="all" <?php echo $severityFilter === 'all' ? 'selected' : ''; ?>>All Severity</option>
-                    <option value="critical" <?php echo $severityFilter === 'critical' ? 'selected' : ''; ?>>Critical</option>
-                    <option value="high" <?php echo $severityFilter === 'high' ? 'selected' : ''; ?>>High</option>
-                    <option value="medium" <?php echo $severityFilter === 'medium' ? 'selected' : ''; ?>>Medium</option>
-                    <option value="low" <?php echo $severityFilter === 'low' ? 'selected' : ''; ?>>Low</option>
-                </select>
-
-                <select id="sort-select"
-                    class="text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <option value="detected_at-desc" <?php echo ($sortBy === 'detected_at' && $sortOrder === 'desc') ? 'selected' : ''; ?>>Newest First</option>
-                    <option value="detected_at-asc" <?php echo ($sortBy === 'detected_at' && $sortOrder === 'asc') ? 'selected' : ''; ?>>Oldest First</option>
-                    <option value="severity-desc" <?php echo ($sortBy === 'severity' && $sortOrder === 'desc') ? 'selected' : ''; ?>>Severity (High to Low)</option>
-                    <option value="pest_type-asc" <?php echo ($sortBy === 'pest_type' && $sortOrder === 'asc') ? 'selected' : ''; ?>>Pest Type (A-Z)</option>
-                    <option value="location-asc" <?php echo ($sortBy === 'location' && $sortOrder === 'asc') ? 'selected' : ''; ?>>Location (A-Z)</option>
-                </select>
-
-                <button onclick="clearFilters()"
-                    class="px-4 py-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                    <i class="fas fa-times mr-2"></i>Clear
-                </button>
+            <!-- Quick Info -->
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl p-6">
+                <h3 class="text-lg font-semibold text-blue-900 dark:text-blue-200 mb-3 flex items-center">
+                    <i class="fas fa-info-circle mr-2"></i>
+                    How It Works
+                </h3>
+                <ul class="space-y-2 text-xs text-blue-800 dark:text-blue-300">
+                    <li class="flex items-start gap-2">
+                        <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                        <span>Select your webcam from the dropdown</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                        <span>Click "Start Detection" to begin monitoring</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                        <span>AI scans frames every 5 seconds</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                        <span>Detections are logged automatically</span>
+                    </li>
+                    <li class="flex items-start gap-2">
+                        <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                        <span>Rate-limited to prevent duplicates</span>
+                    </li>
+                </ul>
             </div>
         </div>
-    </div>
-
-    <!-- Pest Alerts Table -->
-    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
-        <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white flex items-center">
-                <i class="fas fa-table text-yellow-600 mr-2"></i>
-                Pest Alerts
-                <span class="ml-2 px-2 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs rounded-full">
-                    <?php echo count($pestAlerts); ?> alerts
-                </span>
-            </h3>
-        </div>
-
-        <?php if (empty($pestAlerts)): ?>
-            <div class="p-8 text-center">
-                <div class="w-16 h-16 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <i class="fas fa-shield-alt text-green-600 dark:text-green-400 text-2xl"></i>
-                </div>
-                <h3 class="text-lg font-medium text-gray-900 dark:text-white mb-2">No Pest Alerts Found</h3>
-                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                    <?php if (!empty($searchQuery) || $statusFilter !== 'all' || $severityFilter !== 'all'): ?>
-                        No alerts match your current filters. Try adjusting your search criteria.
-                    <?php else: ?>
-                        Your farm is currently pest-free! The monitoring system is actively scanning for threats.
-                    <?php endif; ?>
-                </p>
-                <button onclick="clearFilters()" class="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors">
-                    Clear Filters
-                </button>
-            </div>
-        <?php else: ?>
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-700">
-                        <tr>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Pest Type
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Location
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Severity
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Status
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Detected
-                            </th>
-                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                Actions
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
-                        <?php foreach ($pestAlerts as $alert):
-                            $severityColors = [
-                                'low' => 'green',
-                                'medium' => 'yellow',
-                                'high' => 'orange',
-                                'critical' => 'red'
-                            ];
-                            $statusColors = [
-                                'new' => 'red',
-                                'acknowledged' => 'yellow',
-                                'resolved' => 'green'
-                            ];
-                            $severityColor = $severityColors[$alert['severity']] ?? 'gray';
-                            $statusColor = $statusColors[$alert['status']] ?? 'gray';
-                        ?>
-                            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors duration-200">
-                                <td class="px-4 py-4 whitespace-nowrap">
-                                    <div class="flex items-center">
-                                        <div class="w-8 h-8 bg-<?php echo $severityColor; ?>-100 dark:bg-<?php echo $severityColor; ?>-900 rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
-                                            <i class="fas fa-bug text-<?php echo $severityColor; ?>-600 dark:text-<?php echo $severityColor; ?>-400 text-sm"></i>
-                                        </div>
-                                        <div class="min-w-0">
-                                            <div class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                                                <?php echo htmlspecialchars($alert['pest_type']); ?>
-                                            </div>
-                                            <?php if (isset($alert['confidence_score'])): ?>
-                                                <div class="text-xs text-gray-500 dark:text-gray-400">
-                                                    AI Confidence: <?php echo $alert['confidence_score']; ?>%
-                                                </div>
-                                            <?php endif; ?>
-                                        </div>
-                                    </div>
-                                </td>
-                                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-white">
-                                    <div class="flex items-center">
-                                        <i class="fas fa-map-marker-alt text-gray-400 dark:text-gray-500 mr-1 text-xs"></i>
-                                        <span class="truncate"><?php echo htmlspecialchars($alert['location']); ?></span>
-                                    </div>
-                                </td>
-                                <td class="px-4 py-4 whitespace-nowrap">
-                                    <span class="px-2 py-1 bg-<?php echo $severityColor; ?>-100 dark:bg-<?php echo $severityColor; ?>-900 text-<?php echo $severityColor; ?>-800 dark:text-<?php echo $severityColor; ?>-200 text-xs font-medium rounded-full">
-                                        <?php echo ucfirst($alert['severity']); ?>
-                                    </span>
-                                </td>
-                                <td class="px-4 py-4 whitespace-nowrap">
-                                    <select onchange="updateAlertStatus(<?php echo $alert['id']; ?>, this.value)"
-                                        class="px-2 py-1 bg-<?php echo $statusColor; ?>-100 dark:bg-<?php echo $statusColor; ?>-900 text-<?php echo $statusColor; ?>-800 dark:text-<?php echo $statusColor; ?>-200 text-xs font-medium rounded-full border-0 focus:ring-2 focus:ring-blue-500">
-                                        <option value="new" <?php echo $alert['status'] === 'new' ? 'selected' : ''; ?>>New</option>
-                                        <option value="acknowledged" <?php echo $alert['status'] === 'acknowledged' ? 'selected' : ''; ?>>Acknowledged</option>
-                                        <option value="resolved" <?php echo $alert['status'] === 'resolved' ? 'selected' : ''; ?>>Resolved</option>
-                                    </select>
-                                </td>
-                                <td class="px-4 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                                    <?php
-                                    $timestamp = strtotime($alert['detected_at']);
-                                    $now = time();
-                                    $diff = $now - $timestamp;
-
-                                    if ($diff < 60) {
-                                        echo 'Just now';
-                                    } elseif ($diff < 3600) {
-                                        echo floor($diff / 60) . 'm ago';
-                                    } elseif ($diff < 86400) {
-                                        echo floor($diff / 3600) . 'h ago';
-                                    } else {
-                                        echo date('M j', $timestamp);
-                                    }
-                                    ?>
-                                </td>
-                                <td class="px-4 py-4 whitespace-nowrap text-sm font-medium">
-                                    <div class="flex items-center space-x-2">
-                                        <button onclick="viewAlertDetails(<?php echo $alert['id']; ?>)"
-                                            class="text-blue-600 hover:text-blue-900 dark:text-blue-400 dark:hover:text-blue-300" title="View Details">
-                                            <i class="fas fa-eye text-xs"></i>
-                                        </button>
-                                        <?php if ($alert['status'] !== 'resolved'): ?>
-                                            <button onclick="updateAlertStatus(<?php echo $alert['id']; ?>, 'resolved')"
-                                                class="text-green-600 hover:text-green-900 dark:text-green-400 dark:hover:text-green-300" title="Mark Resolved">
-                                                <i class="fas fa-check text-xs"></i>
-                                            </button>
-                                        <?php endif; ?>
-                                    </div>
-                                </td>
-                            </tr>
-                        <?php endforeach; ?>
-                    </tbody>
-                </table>
-            </div>
-        <?php endif; ?>
     </div>
 </div>
+
+
+<script>
+    // ============================================================================
+    // GLOBAL STATE
+    // ============================================================================
+
+    let currentStream = null;
+    let detectionInterval = null;
+    let isDetecting = false;
+    let selectedDeviceId = null;
+    let scanCount = 0;
+    let detectionCount = 0;
+    let startTime = null;
+    let uptimeInterval = null;
+
+    // DOM Elements
+    const videoElement = document.getElementById('video-element');
+    const captureCanvas = document.getElementById('capture-canvas');
+    const stopBtn = document.getElementById('stop-detection-btn');
+    const cameraPlaceholder = document.getElementById('camera-placeholder');
+    const liveIndicator = document.getElementById('live-indicator');
+    const aiOverlay = document.getElementById('ai-overlay');
+    const statsOverlay = document.getElementById('stats-overlay');
+
+    // ============================================================================
+    // CAMERA MANAGEMENT
+    // ============================================================================
+
+
+
+    /**
+     * Start camera stream with specified device ID
+     */
+    async function startCamera(deviceId) {
+        try {
+            // Stop existing stream if any
+            stopCamera();
+
+            // Request camera stream
+            const constraints = {
+                video: {
+                    deviceId: deviceId ? {
+                        exact: deviceId
+                    } : undefined,
+                    width: {
+                        ideal: 1280
+                    },
+                    height: {
+                        ideal: 720
+                    }
+                }
+            };
+
+            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+            videoElement.srcObject = currentStream;
+
+            // Hide placeholder, show video
+            cameraPlaceholder.classList.add('hidden');
+            videoElement.classList.remove('hidden');
+
+            // Update status
+            document.getElementById('stream-status-dot').classList.remove('bg-gray-400');
+            document.getElementById('stream-status-dot').classList.add('bg-green-500', 'animate-pulse');
+            document.getElementById('stream-status').textContent = 'Active';
+            document.getElementById('camera-status-badge').textContent = 'Connected';
+            document.getElementById('camera-status-badge').classList.remove('text-gray-600');
+            document.getElementById('camera-status-badge').classList.add('text-green-600');
+
+            console.log('Camera started successfully');
+        } catch (error) {
+            console.error('Error starting camera:', error);
+            showToast('Failed to start camera. Please check your camera connection.', 'error');
+        }
+    }
+
+    /**
+     * Stop the current camera stream
+     */
+    function stopCamera() {
+        if (currentStream) {
+            currentStream.getTracks().forEach(track => track.stop());
+            currentStream = null;
+            videoElement.srcObject = null;
+        }
+
+        // Show placeholder, hide video
+        videoElement.classList.add('hidden');
+        cameraPlaceholder.classList.remove('hidden');
+
+        // Update status
+        document.getElementById('stream-status-dot').classList.remove('bg-green-500', 'animate-pulse');
+        document.getElementById('stream-status-dot').classList.add('bg-gray-400');
+        document.getElementById('stream-status').textContent = 'Inactive';
+        document.getElementById('camera-status-badge').textContent = 'Not Connected';
+        document.getElementById('camera-status-badge').classList.remove('text-green-600');
+        document.getElementById('camera-status-badge').classList.add('text-gray-600');
+    }
+
+    // ============================================================================
+    // DETECTION CONTROL
+    // ============================================================================
+
+    /**
+     * Start pest detection process
+     */
+    async function startDetection() {
+        if (isDetecting) return;
+
+        if (!selectedDeviceId) {
+            showToast('Please select a camera first', 'error');
+            return;
+        }
+
+        isDetecting = true;
+        scanCount = 0;
+        detectionCount = 0;
+        startTime = Date.now();
+
+        // Update UI - Show detection is active
+        document.getElementById('start-detection-btn').classList.add('hidden');
+        document.getElementById('stop-detection-btn').classList.remove('hidden');
+        document.getElementById('detection-status').textContent = 'ACTIVE';
+        document.getElementById('detection-status').classList.remove('bg-gray-200', 'dark:bg-gray-600', 'text-gray-700', 'dark:text-gray-300');
+        document.getElementById('detection-status').classList.add('bg-green-100', 'dark:bg-green-900', 'text-green-800', 'dark:text-green-200', 'animate-pulse');
+
+        aiOverlay.classList.remove('hidden');
+        statsOverlay.classList.remove('hidden');
+        document.getElementById('ai-status').textContent = 'Processing';
+
+        // Start detection loop - capture and detect every 5 seconds (optimal for accuracy)
+        detectionInterval = setInterval(captureAndDetect, 5000);
+
+        // Start uptime counter
+        uptimeInterval = setInterval(updateUptime, 1000);
+
+        // Capture first frame immediately (no delay)
+        captureAndDetect();
+
+        // Load statistics
+        loadDetectionStats();
+
+        showToast('AI Detection started', 'success');
+        console.log('Detection started');
+    }
+
+    /**
+     * Stop pest detection process
+     */
+    function stopDetection() {
+        if (!isDetecting) return;
+
+        isDetecting = false;
+
+        // Clear intervals
+        if (detectionInterval) {
+            clearInterval(detectionInterval);
+            detectionInterval = null;
+        }
+        if (uptimeInterval) {
+            clearInterval(uptimeInterval);
+            uptimeInterval = null;
+        }
+
+        // Update UI - Show detection is inactive (but camera stays on)
+        document.getElementById('stop-detection-btn').classList.add('hidden');
+        document.getElementById('start-detection-btn').classList.remove('hidden');
+        document.getElementById('detection-status').textContent = 'INACTIVE';
+        document.getElementById('detection-status').classList.remove('bg-green-100', 'dark:bg-green-900', 'text-green-800', 'dark:text-green-200', 'animate-pulse');
+        document.getElementById('detection-status').classList.add('bg-gray-200', 'dark:bg-gray-600', 'text-gray-700', 'dark:text-gray-300');
+
+        aiOverlay.classList.add('hidden');
+        statsOverlay.classList.add('hidden');
+        document.getElementById('ai-status').textContent = 'Standby';
+
+        // Camera stays on - don't stop it
+        // stopCamera(); // Removed - camera continues running
+
+        showToast('AI Detection stopped (camera still active)', 'info');
+        console.log('Detection stopped, camera still running');
+    }
+
+    /**
+     * Capture frame from video and send for detection
+     */
+    async function captureAndDetect() {
+        if (!isDetecting) return;
+
+        try {
+            // Capture frame from video element
+            const blob = await captureFrame();
+
+            if (!blob) {
+                console.error('Failed to capture frame');
+                return;
+            }
+
+            // Update scan count
+            scanCount++;
+            document.getElementById('scan-count').textContent = scanCount;
+
+            // Send frame for detection
+            await sendFrameForDetection(blob);
+
+            // Update last scan time
+            document.getElementById('last-scan').textContent = 'Just now';
+
+        } catch (error) {
+            console.error('Error in capture and detect:', error);
+        }
+    }
+
+    /**
+     * Capture current video frame as a blob
+     */
+    function captureFrame() {
+        return new Promise((resolve) => {
+            try {
+                // Set canvas dimensions to match video
+                captureCanvas.width = videoElement.videoWidth;
+                captureCanvas.height = videoElement.videoHeight;
+
+                // Draw current video frame to canvas
+                const ctx = captureCanvas.getContext('2d');
+                ctx.drawImage(videoElement, 0, 0, captureCanvas.width, captureCanvas.height);
+
+                // Convert canvas to blob
+                captureCanvas.toBlob((blob) => {
+                    resolve(blob);
+                }, 'image/jpeg', 0.85);
+
+            } catch (error) {
+                console.error('Error capturing frame:', error);
+                resolve(null);
+            }
+        });
+    }
+
+    /**
+     * Send captured frame to server for detection
+     */
+    async function sendFrameForDetection(blob) {
+        if (!isDetecting) {
+            console.log('Detection stopped, skipping frame');
+            return;
+        }
+
+        try {
+            // Create form data with image
+            const formData = new FormData();
+            formData.append('action', 'detect_webcam');
+            formData.append('image', blob, 'frame.jpg');
+
+            // Send to server (Flask-optimized version)
+            const response = await fetch('pest_detection.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (!isDetecting) {
+                console.log('Detection stopped, ignoring results');
+                return;
+            }
+
+            if (data.success) {
+                console.log('High confidence detections (logged):', data.detections);
+                console.log('All detections (including low confidence):', data.all_detections);
+
+                // Update latest detection image with ALL detections (including low confidence)
+                if (data.annotated_image && data.all_detections) {
+                    updateLatestDetection(data.annotated_image, data.all_detections);
+                }
+
+                // Update detection count and UI with HIGH CONFIDENCE detections only
+                if (data.detections && data.detections.length > 0) {
+                    const newDetections = data.detections.filter(d => d.logged);
+
+                    if (newDetections.length > 0) {
+                        detectionCount += newDetections.length;
+                        document.getElementById('detection-count').textContent = detectionCount;
+
+                        // Immediately refresh displays (no delay)
+                        loadRecentDetections();
+                        loadDetectionStats();
+
+                        // Show toast notification for new HIGH CONFIDENCE detections
+                        newDetections.forEach(detection => {
+                            console.log(`🐛 Logged: ${detection.type} (${detection.confidence}%)`);
+                        });
+                    }
+                }
+
+                // Show info about low confidence detections
+                if (data.all_detections) {
+                    const lowConfDetections = data.all_detections.filter(d => d.is_low_confidence);
+                    if (lowConfDetections.length > 0) {
+                        console.log(`ℹ️ ${lowConfDetections.length} low confidence detection(s) shown in image but not logged`);
+                    }
+                }
+            } else {
+                console.error('Detection failed:', data.message);
+            }
+
+        } catch (error) {
+            console.error('Error sending frame for detection:', error);
+        }
+    }
+
+    /**
+     * Update uptime display
+     */
+    function updateUptime() {
+        if (!startTime) return;
+
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+
+        document.getElementById('uptime').textContent =
+            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    // ============================================================================
+    // DATA LOADING
+    // ============================================================================
+
+    /**
+     * Update latest detection display with annotated image
+     * Shows ALL detections (including low confidence) in the image
+     */
+    function updateLatestDetection(imagePath, detections) {
+        const detectionImage = document.getElementById('detection-image');
+        const noDetectionPlaceholder = document.getElementById('no-detection-placeholder');
+        const detectionInfo = document.getElementById('detection-info');
+        const detectionLabel = document.getElementById('detection-label');
+        const detectionConfidence = document.getElementById('detection-confidence');
+        const detectionTime = document.getElementById('detection-time');
+
+        if (imagePath && detections && detections.length > 0) {
+            // Show annotated image (contains ALL detections including low confidence)
+            detectionImage.src = 'detections/' + imagePath + '?t=' + Date.now(); // Add timestamp to prevent caching
+            detectionImage.classList.remove('hidden');
+            noDetectionPlaceholder.classList.add('hidden');
+            detectionInfo.classList.remove('hidden');
+
+            // Get the first HIGH CONFIDENCE detection, or first detection if none are high confidence
+            const highConfDetections = detections.filter(d => !d.is_low_confidence);
+            const firstDetection = highConfDetections.length > 0 ? highConfDetections[0] : detections[0];
+
+            // Update detection info
+            let labelText = firstDetection.type;
+            
+            // Add indicator if this is low confidence
+            if (firstDetection.is_low_confidence) {
+                labelText += ' (Low Conf)';
+            }
+            
+            // Show count if multiple detections
+            if (detections.length > 1) {
+                const lowConfCount = detections.filter(d => d.is_low_confidence).length;
+                const highConfCount = detections.length - lowConfCount;
+                
+                if (lowConfCount > 0) {
+                    labelText += ` +${detections.length - 1} more (${highConfCount} high, ${lowConfCount} low)`;
+                } else {
+                    labelText += ` +${detections.length - 1} more`;
+                }
+            }
+            
+            detectionLabel.textContent = labelText;
+            detectionConfidence.textContent = firstDetection.confidence + '%';
+            detectionTime.textContent = new Date().toLocaleTimeString();
+
+            // Add severity color to label (dimmed if low confidence)
+            const severityColors = {
+                'low': 'text-blue-600',
+                'medium': 'text-yellow-600',
+                'high': 'text-orange-600',
+                'critical': 'text-red-600'
+            };
+            let colorClass = severityColors[firstDetection.severity] || 'text-gray-600';
+            
+            // Dim the color if low confidence
+            if (firstDetection.is_low_confidence) {
+                colorClass = colorClass.replace('600', '400'); // Lighter shade
+            }
+            
+            detectionLabel.className = `text-sm font-semibold ${colorClass}`;
+        }
+    }
+
+    // ============================================================================
+    // PAGINATION STATE
+    // ============================================================================
+
+    let allDetections = [];
+    let currentDetectionPage = 1;
+    const detectionsPerPage = 10;
+
+    /**
+     * Load recent detections from server
+     */
+    async function loadRecentDetections() {
+        try {
+            const response = await fetch('pest_detection.php?action=get_recent_detections&limit=100', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'action=get_recent_detections'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                allDetections = data.detections;
+                currentDetectionPage = 1;
+                displayRecentDetections();
+            }
+        } catch (error) {
+            console.error('Error loading recent detections:', error);
+        }
+    }
+
+    /**
+     * Change detection page
+     */
+    function changeDetectionPage(direction) {
+        const totalPages = Math.ceil(allDetections.length / detectionsPerPage);
+
+        if (direction === 'prev' && currentDetectionPage > 1) {
+            currentDetectionPage--;
+        } else if (direction === 'next' && currentDetectionPage < totalPages) {
+            currentDetectionPage++;
+        }
+
+        displayRecentDetections();
+    }
+
+    /**
+     * Display recent detections in the UI with pagination
+     */
+    function displayRecentDetections() {
+        const container = document.getElementById('recent-detections');
+        const paginationEl = document.getElementById('detection-pagination');
+        const totalCountEl = document.getElementById('detection-total-count');
+
+        if (!allDetections || allDetections.length === 0) {
+            container.innerHTML = `
+                    <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <i class="fas fa-inbox text-4xl mb-2"></i>
+                        <p>No detections yet. Start monitoring to see results here.</p>
+                    </div>
+                `;
+            paginationEl.classList.add('hidden');
+            totalCountEl.textContent = '0';
+            return;
+        }
+
+        // Calculate pagination
+        const totalPages = Math.ceil(allDetections.length / detectionsPerPage);
+        const startIndex = (currentDetectionPage - 1) * detectionsPerPage;
+        const endIndex = Math.min(startIndex + detectionsPerPage, allDetections.length);
+        const pageDetections = allDetections.slice(startIndex, endIndex);
+
+        // Update total count badge
+        totalCountEl.textContent = allDetections.length;
+
+        // Build compact detection rows
+        let html = '';
+        pageDetections.forEach(detection => {
+            const severityColors = {
+                'low': 'blue',
+                'medium': 'yellow',
+                'high': 'orange',
+                'critical': 'red'
+            };
+            const color = severityColors[detection.severity] || 'gray';
+            const timeAgo = formatTimeAgo(detection.detected_at);
+            const readClass = detection.is_read ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800';
+
+            html += `
+                    <div class="${readClass} hover:bg-gray-50 dark:hover:bg-gray-700 p-3 cursor-pointer transition-colors" onclick="viewAlertDetails(${detection.id})">
+                        <div class="flex items-center gap-3">
+                            <div class="w-8 h-8 bg-${color}-100 dark:bg-${color}-900 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <i class="fas fa-bug text-${color}-600 dark:text-${color}-400 text-sm"></i>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center justify-between gap-2">
+                                    <h4 class="text-sm font-medium text-gray-900 dark:text-white truncate">${escapeHtml(detection.pest_type)}</h4>
+                                    <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">${timeAgo}</span>
+                                </div>
+                                <div class="flex items-center gap-2 mt-1">
+                                    <span class="text-xs text-gray-600 dark:text-gray-400">${detection.confidence_score}%</span>
+                                    <span class="text-xs text-gray-400">•</span>
+                                    <span class="px-2 py-0.5 bg-${color}-100 dark:bg-${color}-900 text-${color}-800 dark:text-${color}-200 text-xs font-medium rounded">
+                                        ${detection.severity.charAt(0).toUpperCase() + detection.severity.slice(1)}
+                                    </span>
+                                    ${!detection.is_read ? `<span class="w-2 h-2 bg-${color}-500 rounded-full ml-auto"></span>` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+        });
+
+        container.innerHTML = html;
+
+        // Update pagination controls
+        paginationEl.classList.remove('hidden');
+        document.getElementById('detection-showing-start').textContent = startIndex + 1;
+        document.getElementById('detection-showing-end').textContent = endIndex;
+        document.getElementById('detection-total').textContent = allDetections.length;
+        document.getElementById('detection-current-page').textContent = currentDetectionPage;
+        document.getElementById('detection-total-pages').textContent = totalPages;
+
+        // Update button states
+        const prevBtn = document.getElementById('detection-prev-btn');
+        const nextBtn = document.getElementById('detection-next-btn');
+
+        prevBtn.disabled = currentDetectionPage === 1;
+        nextBtn.disabled = currentDetectionPage === totalPages;
+    }
+
+    /**
+     * Load detection statistics
+     */
+    async function loadDetectionStats() {
+        try {
+            const response = await fetch('pest_detection.php?action=get_detection_stats', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded'
+                },
+                body: 'action=get_detection_stats'
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                document.getElementById('total-detections').textContent = data.stats.total_detections || 0;
+                document.getElementById('today-detections').textContent = data.stats.today_detections || 0;
+                document.getElementById('critical-detections').textContent = data.stats.critical_count || 0;
+            }
+        } catch (error) {
+            console.error('Error loading detection stats:', error);
+        }
+    }
+
+    /**
+     * Clear webcam detections
+     */
+    async function clearWebcamDetections() {
+        if (!confirm('Are you sure you want to clear all webcam detections?')) {
+            return;
+        }
+
+        try {
+            const formData = new FormData();
+            formData.append('action', 'clear_webcam_detections');
+
+            const response = await fetch('pest_detection.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('Detections cleared successfully', 'success');
+                loadRecentDetections();
+                loadDetectionStats();
+            } else {
+                showToast(data.message, 'error');
+            }
+        } catch (error) {
+            console.error('Error clearing detections:', error);
+            showToast('Failed to clear detections', 'error');
+        }
+    }
+
+    // ============================================================================
+    // NOTIFICATION FUNCTIONS
+    // ============================================================================
+
+    /**
+     * Toggle notification panel visibility
+     */
+    function toggleNotificationPanel() {
+        const panel = document.getElementById('notification-panel');
+        panel.classList.toggle('hidden');
+
+        if (!panel.classList.contains('hidden')) {
+            loadUnreadNotifications();
+        }
+    }
+
+    /**
+     * Load unread notifications
+     */
+    async function loadUnreadNotifications() {
+        try {
+            const response = await fetch('pest_detection.php?action=get_recent_detections&limit=20');
+            const data = await response.json();
+
+            if (data.success) {
+                const unreadDetections = data.detections.filter(d => !d.is_read);
+                displayNotifications(unreadDetections);
+            }
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
+    }
+
+    /**
+     * Display notifications in the panel
+     */
+    function displayNotifications(notifications) {
+        const listEl = document.getElementById('notification-list');
+        const countEl = document.getElementById('notification-count');
+
+        countEl.textContent = notifications.length;
+
+        if (notifications.length === 0) {
+            listEl.innerHTML = `
+                    <div class="text-center py-8 text-gray-500 dark:text-gray-400">
+                        <i class="fas fa-inbox text-4xl mb-2"></i>
+                        <p>No unread notifications</p>
+                    </div>
+                `;
+            return;
+        }
+
+        listEl.innerHTML = notifications.map(notif => {
+            const severityColors = {
+                critical: 'bg-red-100 dark:bg-red-900/30 border-red-300 dark:border-red-700',
+                high: 'bg-orange-100 dark:bg-orange-900/30 border-orange-300 dark:border-orange-700',
+                medium: 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-300 dark:border-yellow-700',
+                low: 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700'
+            };
+
+            const severityIcons = {
+                critical: 'fa-exclamation-triangle text-red-600',
+                high: 'fa-exclamation-circle text-orange-600',
+                medium: 'fa-info-circle text-yellow-600',
+                low: 'fa-check-circle text-blue-600'
+            };
+
+            return `
+                    <div class="border ${severityColors[notif.severity]} rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow" 
+                         onclick="viewAlertDetails(${notif.id})">
+                        <div class="flex items-start justify-between mb-2">
+                            <div class="flex items-center gap-2">
+                                <i class="fas ${severityIcons[notif.severity]}"></i>
+                                <span class="font-semibold text-gray-900 dark:text-white">${escapeHtml(notif.pest_type)}</span>
+                                <span class="px-2 py-1 text-xs font-bold uppercase rounded ${notif.severity === 'critical' ? 'bg-red-600 text-white' : notif.severity === 'high' ? 'bg-orange-600 text-white' : notif.severity === 'medium' ? 'bg-yellow-600 text-white' : 'bg-blue-600 text-white'}">${notif.severity}</span>
+                            </div>
+                            <button onclick="event.stopPropagation(); markAsRead(${notif.id})" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                        <div class="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                            <i class="fas fa-map-marker-alt mr-1"></i>${escapeHtml(notif.location)}
+                            <span class="mx-2">•</span>
+                            <i class="fas fa-clock mr-1"></i>${formatTimeAgo(notif.detected_at)}
+                            <span class="mx-2">•</span>
+                            <i class="fas fa-percentage mr-1"></i>${notif.confidence_score}% confidence
+                        </div>
+                        ${notif.suggested_actions ? `
+                            <div class="text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded mt-2">
+                                <strong>Action:</strong> ${escapeHtml(notif.suggested_actions.substring(0, 100))}${notif.suggested_actions.length > 100 ? '...' : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+        }).join('');
+    }
+
+    /**
+     * Mark a specific alert as read
+     */
+    async function markAsRead(alertId) {
+        try {
+            const formData = new FormData();
+            formData.append('action', 'mark_as_read');
+            formData.append('alert_id', alertId);
+
+            const response = await fetch('pest_detection.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast('Alert marked as read', 'success');
+                await updateUnreadCount();
+                await loadUnreadNotifications();
+                await loadRecentDetections();
+            } else {
+                showToast(data.message || 'Failed to mark as read', 'error');
+            }
+        } catch (error) {
+            console.error('Error marking as read:', error);
+            showToast('Error marking alert as read', 'error');
+        }
+    }
+
+    /**
+     * Mark all alerts as read
+     */
+    async function markAllAsRead() {
+        try {
+            const formData = new FormData();
+            formData.append('action', 'mark_all_as_read');
+
+            const response = await fetch('pest_detection.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                showToast(data.message, 'success');
+                await updateUnreadCount();
+                await loadUnreadNotifications();
+                await loadRecentDetections();
+            } else {
+                showToast(data.message || 'Failed to mark all as read', 'error');
+            }
+        } catch (error) {
+            console.error('Error marking all as read:', error);
+            showToast('Error marking alerts as read', 'error');
+        }
+    }
+
+    /**
+     * Update unread notification count
+     */
+    async function updateUnreadCount() {
+        try {
+            const formData = new FormData();
+            formData.append('action', 'get_unread_count');
+
+            const response = await fetch('pest_detection.php', {
+                method: 'POST',
+                body: formData
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                const totalUnread = parseInt(data.unread.total_unread);
+                const badge = document.getElementById('unread-badge');
+
+                // Only update if badge element exists
+                if (badge) {
+                    if (totalUnread > 0) {
+                        badge.textContent = totalUnread > 99 ? '99+' : totalUnread;
+                        badge.classList.remove('hidden');
+                    } else {
+                        badge.classList.add('hidden');
+                    }
+                }
+
+                // Also update notification count in panel if it exists
+                const notificationCount = document.getElementById('notification-count');
+                if (notificationCount) {
+                    notificationCount.textContent = totalUnread;
+                }
+            }
+        } catch (error) {
+            console.error('Error updating unread count:', error);
+        }
+    }
+
+    /**
+     * View alert details in a modal
+     */
+    async function viewAlertDetails(alertId) {
+        try {
+            const response = await fetch(`pest_detection.php?action=get_alert_details&alert_id=${alertId}`);
+            const data = await response.json();
+
+            if (data.success) {
+                const alert = data.alert;
+                const pestInfo = data.pest_info;
+
+                // Create modal content
+                const modalContent = `
+                        <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onclick="this.remove()">
+                            <div class="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+                                <div class="p-6">
+                                    <div class="flex items-center justify-between mb-4">
+                                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+                                            <i class="fas fa-bug text-red-600 mr-2"></i>${escapeHtml(alert.pest_type)}
+                                        </h2>
+                                        <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                                            <i class="fas fa-times text-2xl"></i>
+                                        </button>
+                                    </div>
+                                    
+                                    <div class="space-y-4">
+                                        <div class="flex items-center gap-4">
+                                            <span class="px-3 py-1 text-sm font-bold uppercase rounded ${alert.severity === 'critical' ? 'bg-red-600 text-white' : alert.severity === 'high' ? 'bg-orange-600 text-white' : alert.severity === 'medium' ? 'bg-yellow-600 text-white' : 'bg-blue-600 text-white'}">${alert.severity}</span>
+                                            <span class="text-gray-600 dark:text-gray-400">${alert.confidence_score}% confidence</span>
+                                        </div>
+                                        
+                                        <div class="grid grid-cols-2 gap-4 text-sm">
+                                            <div>
+                                                <span class="text-gray-600 dark:text-gray-400">Location:</span>
+                                                <span class="font-medium text-gray-900 dark:text-white ml-2">${escapeHtml(alert.location)}</span>
+                                            </div>
+                                            <div>
+                                                <span class="text-gray-600 dark:text-gray-400">Detected:</span>
+                                                <span class="font-medium text-gray-900 dark:text-white ml-2">${new Date(alert.detected_at).toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                        
+                                        ${alert.description ? `
+                                            <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                                                <h3 class="font-semibold text-gray-900 dark:text-white mb-2">Description</h3>
+                                                <p class="text-gray-700 dark:text-gray-300">${escapeHtml(alert.description)}</p>
+                                            </div>
+                                        ` : ''}
+                                        
+                                        <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
+                                            <h3 class="font-semibold text-blue-900 dark:text-blue-200 mb-2 flex items-center">
+                                                <i class="fas fa-clipboard-list mr-2"></i>Suggested Actions
+                                            </h3>
+                                            <p class="text-blue-800 dark:text-blue-300 text-sm whitespace-pre-line">${escapeHtml(pestInfo.actions)}</p>
+                                        </div>
+                                        
+                                        <div class="flex gap-3">
+                                            ${!alert.is_read ? `
+                                                <button onclick="markAsRead(${alert.id}); this.closest('.fixed').remove();" class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors">
+                                                    <i class="fas fa-check mr-2"></i>Mark as Read
+                                                </button>
+                                            ` : `
+                                                <div class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-medium rounded-lg text-center">
+                                                    <i class="fas fa-check-circle mr-2"></i>Already Read
+                                                </div>
+                                            `}
+                                            <button onclick="this.closest('.fixed').remove()" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white font-medium rounded-lg transition-colors">
+                                                Close
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+
+                document.body.insertAdjacentHTML('beforeend', modalContent);
+            } else {
+                showToast(data.message || 'Failed to load alert details', 'error');
+            }
+        } catch (error) {
+            console.error('Error loading alert details:', error);
+            showToast('Error loading alert details', 'error');
+        }
+    }
+
+    // ============================================================================
+    // UTILITY FUNCTIONS
+    // ============================================================================
+
+    /**
+     * Format timestamp as time ago
+     */
+    function formatTimeAgo(timestamp) {
+        const date = new Date(timestamp);
+        const now = new Date();
+        const diffMs = now - date;
+        const diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 1) return 'Just now';
+        if (diffMins < 60) return `${diffMins}m ago`;
+        if (diffMins < 1440) return `${Math.floor(diffMins / 60)}h ago`;
+        return date.toLocaleDateString();
+    }
+
+    /**
+     * Escape HTML to prevent XSS
+     */
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    /**
+     * Show toast notification
+     */
+    function showToast(message, type = 'info') {
+        // Use existing toast system if available, otherwise use alert
+        if (typeof window.showToast === 'function') {
+            window.showToast(message, type);
+        } else {
+            console.log(`[${type.toUpperCase()}] ${message}`);
+            if (type === 'error') {
+                alert(message);
+            }
+        }
+    }
+
+    // ============================================================================
+    // EVENT LISTENERS
+    // ============================================================================
+
+    // Stop detection button (onclick handler in HTML)
+
+    // ============================================================================
+    // INITIALIZATION
+    // ============================================================================
+
+    document.addEventListener('DOMContentLoaded', async function() {
+        console.log('Real-Time Pest Detection System initializing...');
+
+        // Check for getUserMedia support
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showToast('Your browser does not support camera access. Please use a modern browser.', 'error');
+            document.getElementById('live-indicator').textContent = 'NOT SUPPORTED';
+            document.getElementById('live-indicator').classList.remove('bg-gray-400');
+            document.getElementById('live-indicator').classList.add('bg-red-600');
+            return;
+        }
+
+        // Request camera permission first
+        try {
+            const tempStream = await navigator.mediaDevices.getUserMedia({
+                video: true
+            });
+            tempStream.getTracks().forEach(track => track.stop());
+        } catch (error) {
+            console.error('Camera permission denied:', error);
+            showToast('Camera permission denied. Please allow camera access.', 'error');
+            document.getElementById('live-indicator').textContent = 'PERMISSION DENIED';
+            document.getElementById('live-indicator').classList.remove('bg-gray-400');
+            document.getElementById('live-indicator').classList.add('bg-red-600');
+            return;
+        }
+
+        // Enumerate cameras
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+        if (videoDevices.length === 0) {
+            showToast('No cameras found', 'error');
+            document.getElementById('live-indicator').textContent = 'NO CAMERA';
+            document.getElementById('live-indicator').classList.remove('bg-gray-400');
+            document.getElementById('live-indicator').classList.add('bg-red-600');
+            return;
+        }
+
+        // Get saved camera or use first available
+        const savedCameraId = localStorage.getItem('defaultCameraId');
+        const savedCameraName = localStorage.getItem('defaultCameraName');
+
+        // Find the camera to use
+        let cameraToUse = videoDevices[0];
+        if (savedCameraId) {
+            const savedCamera = videoDevices.find(d => d.deviceId === savedCameraId);
+            if (savedCamera) {
+                cameraToUse = savedCamera;
+            }
+        }
+
+        selectedDeviceId = cameraToUse.deviceId;
+        const cameraName = savedCameraName || cameraToUse.label || 'Default Camera';
+        document.getElementById('camera-name').textContent = cameraName;
+
+        // Save as default if not already saved
+        if (!savedCameraId) {
+            localStorage.setItem('defaultCameraId', selectedDeviceId);
+            localStorage.setItem('defaultCameraName', cameraName);
+        }
+
+        // Load initial data
+        await loadRecentDetections();
+        await loadDetectionStats();
+        await updateUnreadCount();
+
+        console.log('Real-Time Pest Detection System ready');
+        console.log('Using camera:', cameraName);
+
+        // Start camera feed (but not detection)
+        await startCamera(selectedDeviceId);
+
+        // Update camera status
+        document.getElementById('camera-status').textContent = 'LIVE';
+
+        // Update unread count every 30 seconds
+        setInterval(updateUnreadCount, 30000);
+        document.getElementById('camera-status').classList.remove('bg-gray-400');
+        document.getElementById('camera-status').classList.add('bg-green-600');
+
+        console.log('Camera feed started. Click "Start Detection" to begin AI pest detection.');
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', function() {
+        if (isDetecting) {
+            stopDetection();
+        }
+    });
+</script>
 
 <!-- Camera Settings Modal -->
-<div id="camera-settings-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-    <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-2/3 xl:w-1/2 shadow-lg rounded-xl bg-white dark:bg-gray-800 max-h-screen overflow-y-auto">
-        <div class="mt-3">
-            <!-- Modal Header -->
-            <div class="flex items-center justify-between pb-4 border-b border-secondary-200 dark:border-gray-700">
-                <h3 class="text-heading-lg text-secondary-900 dark:text-white font-display">
-                    <i class="fas fa-video text-blue-600 dark:text-blue-400 mr-2"></i>
-                    Camera Management & Settings
+<div id="camera-settings-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
+        <div class="p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-xl font-bold text-gray-900 dark:text-white">
+                    <i class="fas fa-cog text-blue-600 mr-2"></i>
+                    Camera Settings
                 </h3>
-                <button onclick="closeCameraSettingsModal()" class="text-secondary-400 dark:text-gray-500 hover:text-secondary-600 dark:hover:text-gray-300">
+                <button onclick="closeCameraSettings()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
                     <i class="fas fa-times text-xl"></i>
                 </button>
             </div>
 
-            <!-- Modal Content -->
-            <div class="py-6 space-y-6">
-                <!-- Camera Selection -->
+            <div class="space-y-4">
                 <div>
-                    <h4 class="text-heading-md text-secondary-900 dark:text-white mb-4">Select Active Camera</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="camera-selection-grid">
-                        <!-- Camera selection cards will be loaded here -->
-                    </div>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Select Default Camera
+                    </label>
+                    <select id="camera-select-modal" class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500">
+                        <option value="">Loading cameras...</option>
+                    </select>
                 </div>
 
-                <!-- Camera Settings Form -->
-                <div id="camera-settings-form" class="hidden">
-                    <h4 class="text-heading-md text-secondary-900 dark:text-white mb-4">Camera Configuration</h4>
-                    <form id="camera-config-form" class="space-y-4">
-                        <input type="hidden" id="selected-camera-id" name="camera_id">
-
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Camera Name
-                                </label>
-                                <input type="text" id="camera-name" name="camera_name"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Location
-                                </label>
-                                <input type="text" id="camera-location" name="location"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    IP Address
-                                </label>
-                                <input type="text" id="camera-ip" name="ip_address"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Port
-                                </label>
-                                <input type="number" id="camera-port" name="port" min="1" max="65535"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Resolution
-                                </label>
-                                <select id="camera-resolution" name="resolution"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                    <option value="640x480">640x480 (VGA)</option>
-                                    <option value="1280x720">1280x720 (HD)</option>
-                                    <option value="1920x1080">1920x1080 (Full HD)</option>
-                                    <option value="2560x1440">2560x1440 (2K)</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Frame Rate (FPS)
-                                </label>
-                                <select id="camera-fps" name="fps"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                    <option value="15">15 FPS</option>
-                                    <option value="25">25 FPS</option>
-                                    <option value="30">30 FPS</option>
-                                    <option value="60">60 FPS</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Detection Sensitivity
-                                </label>
-                                <select id="detection-sensitivity" name="detection_sensitivity"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                    <option value="low">Low (90%+ confidence)</option>
-                                    <option value="medium">Medium (80%+ confidence)</option>
-                                    <option value="high">High (70%+ confidence)</option>
-                                </select>
-                            </div>
-
-                            <div>
-                                <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                    Camera Type
-                                </label>
-                                <select id="camera-type" name="camera_type"
-                                    class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                    <option value="ip_camera">IP Camera</option>
-                                    <option value="usb_camera">USB Camera</option>
-                                    <option value="rtsp_stream">RTSP Stream</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="flex items-center">
-                            <input type="checkbox" id="detection-enabled" name="detection_enabled"
-                                class="w-4 h-4 text-primary-600 bg-gray-100 border-gray-300 rounded focus:ring-primary-500 dark:focus:ring-primary-600 dark:ring-offset-gray-800 focus:ring-2 dark:bg-gray-700 dark:border-gray-600">
-                            <label for="detection-enabled" class="ml-2 text-body-md font-medium text-secondary-700 dark:text-gray-300">
-                                Enable AI Pest Detection
-                            </label>
-                        </div>
-
-                        <!-- Authentication for IP Cameras -->
-                        <div id="camera-auth" class="hidden">
-                            <h5 class="text-heading-sm text-secondary-900 dark:text-white mb-3">Camera Authentication</h5>
-                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                        Username
-                                    </label>
-                                    <input type="text" id="camera-username" name="username"
-                                        class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                </div>
-
-                                <div>
-                                    <label class="block text-body-md font-medium text-secondary-700 dark:text-gray-300 mb-2">
-                                        Password
-                                    </label>
-                                    <input type="password" id="camera-password" name="password"
-                                        class="form-input w-full text-body-md border-secondary-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-primary-500">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Action Buttons -->
-                        <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-secondary-200 dark:border-gray-700">
-                            <button type="button" onclick="testCameraConnection()"
-                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors duration-200 flex-1 sm:flex-none">
-                                <i class="fas fa-plug mr-2"></i>Test Connection
-                            </button>
-
-                            <button type="button" onclick="startLivePreview()"
-                                class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors duration-200 flex-1 sm:flex-none">
-                                <i class="fas fa-play mr-2"></i>Live Preview
-                            </button>
-
-                            <button type="submit"
-                                class="btn-primary flex-1 sm:flex-none">
-                                <i class="fas fa-save mr-2"></i>Save Settings
-                            </button>
-
-                            <button type="button" onclick="closeCameraSettingsModal()"
-                                class="px-4 py-2 bg-secondary-600 hover:bg-secondary-700 text-white rounded-lg font-medium transition-colors duration-200 flex-1 sm:flex-none">
-                                Cancel
-                            </button>
-                        </div>
-                    </form>
+                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                    <p class="text-sm text-blue-800 dark:text-blue-200">
+                        <i class="fas fa-info-circle mr-2"></i>
+                        Your camera selection will be saved and automatically used when you visit this page.
+                    </p>
                 </div>
 
-                <!-- Live Preview Area -->
-                <div id="live-preview-area" class="hidden">
-                    <h4 class="text-heading-md text-secondary-900 dark:text-white mb-4">Live Camera Feed</h4>
-                    <div class="bg-black rounded-lg overflow-hidden">
-                        <div id="camera-preview" class="w-full h-64 bg-gray-900 flex items-center justify-center">
-                            <div class="text-white text-center">
-                                <i class="fas fa-video text-4xl mb-2"></i>
-                                <p>Camera feed will appear here</p>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-4 flex justify-center gap-3">
-                        <button onclick="stopLivePreview()"
-                            class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors duration-200">
-                            <i class="fas fa-stop mr-2"></i>Stop Preview
-                        </button>
-                        <button onclick="captureTestImage()"
-                            class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors duration-200">
-                            <i class="fas fa-camera mr-2"></i>Capture Test Image
-                        </button>
-                    </div>
+                <div class="flex gap-3 pt-4">
+                    <button onclick="saveCameraSettings()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+                        <i class="fas fa-save mr-2"></i>Save & Restart
+                    </button>
+                    <button onclick="closeCameraSettings()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium rounded-lg transition-colors">
+                        Cancel
+                    </button>
                 </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<!-- Alert Details Modal -->
-<div id="alert-details-modal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
-    <div class="relative top-20 mx-auto p-5 border w-11/12 md:w-3/4 lg:w-1/2 shadow-lg rounded-xl bg-white dark:bg-gray-800">
-        <div class="mt-3">
-            <!-- Modal Header -->
-            <div class="flex items-center justify-between pb-4 border-b border-secondary-200 dark:border-gray-700">
-                <h3 class="text-heading-lg text-secondary-900 dark:text-white font-display">
-                    <i class="fas fa-bug text-yellow-600 dark:text-yellow-400 mr-2"></i>
-                    Pest Alert Details
-                </h3>
-                <button onclick="closeAlertModal()" class="text-secondary-400 dark:text-gray-500 hover:text-secondary-600 dark:hover:text-gray-300">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
-            </div>
-
-            <!-- Modal Content -->
-            <div id="modal-content" class="py-6">
-                <!-- Content will be loaded here -->
             </div>
         </div>
     </div>
 </div>
 
 <script>
-    // Filter and search functionality
-    let searchTimeout;
+    // Camera Settings Functions
+    function openCameraSettings() {
+        document.getElementById('camera-settings-modal').classList.remove('hidden');
 
-    document.getElementById('search-input').addEventListener('input', function() {
-        clearTimeout(searchTimeout);
-        searchTimeout = setTimeout(() => {
-            applyFilters();
-        }, 500);
-    });
+        // Populate modal with cameras
+        const modalSelect = document.getElementById('camera-select-modal');
+        modalSelect.innerHTML = '';
 
-    document.getElementById('status-filter').addEventListener('change', applyFilters);
-    document.getElementById('severity-filter').addEventListener('change', applyFilters);
-    document.getElementById('sort-select').addEventListener('change', applyFilters);
+        navigator.mediaDevices.enumerateDevices().then(devices => {
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
 
-    function applyFilters() {
-        const search = document.getElementById('search-input').value;
-        const status = document.getElementById('status-filter').value;
-        const severity = document.getElementById('severity-filter').value;
-        const sort = document.getElementById('sort-select').value;
+            videoDevices.forEach((device, index) => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.textContent = device.label || `Camera ${index + 1}`;
 
-        const [sortBy, sortOrder] = sort.split('-');
+                // Select current camera
+                if (device.deviceId === selectedDeviceId) {
+                    option.selected = true;
+                }
 
-        const params = new URLSearchParams();
-        if (search) params.set('search', search);
-        if (status !== 'all') params.set('status', status);
-        if (severity !== 'all') params.set('severity', severity);
-        if (sortBy) params.set('sort', sortBy);
-        if (sortOrder) params.set('order', sortOrder);
-
-        window.location.href = 'pest_detection.php?' + params.toString();
+                modalSelect.appendChild(option);
+            });
+        });
     }
 
-    function clearFilters() {
-        window.location.href = 'pest_detection.php';
+    function closeCameraSettings() {
+        document.getElementById('camera-settings-modal').classList.add('hidden');
     }
 
-    function filterByStatus(status) {
-        document.getElementById('status-filter').value = status;
-        applyFilters();
-    }
+    function saveCameraSettings() {
+        const modalSelect = document.getElementById('camera-select-modal');
+        const newDeviceId = modalSelect.value;
 
-    // Alert management functions
-    function updateAlertStatus(alertId, newStatus) {
-        const formData = new FormData();
-        formData.append('action', 'update_status');
-        formData.append('alert_id', alertId);
-        formData.append('status', newStatus);
+        if (newDeviceId) {
+            // Save to localStorage
+            localStorage.setItem('defaultCameraId', newDeviceId);
 
-        fetch('pest_detection.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    // Optionally refresh the page or update the UI
+            // Get camera name
+            const selectedOption = modalSelect.options[modalSelect.selectedIndex];
+            const cameraName = selectedOption.textContent;
+            localStorage.setItem('defaultCameraName', cameraName);
+
+            showToast('Camera settings saved! Restarting camera...', 'success');
+
+            // Close modal
+            closeCameraSettings();
+
+            // Stop detection if running
+            const wasDetecting = isDetecting;
+            if (isDetecting) {
+                stopDetection();
+            }
+
+            // Update camera
+            selectedDeviceId = newDeviceId;
+            document.getElementById('camera-name').textContent = cameraName;
+
+            // Restart camera with new device
+            setTimeout(async () => {
+                await startCamera(newDeviceId);
+
+                // If detection was running, restart it
+                if (wasDetecting) {
                     setTimeout(() => {
-                        location.reload();
-                    }, 1000);
-                } else {
-                    showToast(data.message, 'error');
+                        startDetection();
+                    }, 500);
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Failed to update alert status', 'error');
-            });
-    }
-
-    function viewAlertDetails(alertId) {
-        const formData = new FormData();
-        formData.append('action', 'get_alert_details');
-        formData.append('alert_id', alertId);
-
-        fetch('pest_detection.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    displayAlertDetails(data.alert);
-                } else {
-                    showToast(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Failed to load alert details', 'error');
-            });
-    }
-
-    function displayAlertDetails(alert) {
-        const severityColors = {
-            'low': 'green',
-            'medium': 'yellow',
-            'high': 'orange',
-            'critical': 'red'
-        };
-
-        const statusColors = {
-            'new': 'red',
-            'acknowledged': 'yellow',
-            'resolved': 'green'
-        };
-
-        const severityColor = severityColors[alert.severity] || 'gray';
-        const statusColor = statusColors[alert.status] || 'gray';
-
-        const modalContent = document.getElementById('modal-content');
-        modalContent.innerHTML = `
-        <div class="space-y-6">
-            <!-- Alert Overview -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    <h4 class="text-heading-md text-secondary-900 dark:text-white mb-3">Pest Information</h4>
-                    <div class="space-y-3">
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Type:</span>
-                            <span class="text-body-md font-medium text-secondary-900 dark:text-white">${alert.pest_type}</span>
-                        </div>
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Location:</span>
-                            <span class="text-body-md font-medium text-secondary-900 dark:text-white">
-                                <i class="fas fa-map-marker-alt text-secondary-400 dark:text-gray-500 mr-1"></i>
-                                ${alert.location}
-                            </span>
-                        </div>
-                        ${alert.camera_name ? `
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Camera:</span>
-                            <span class="text-body-md font-medium text-secondary-900 dark:text-white">
-                                <i class="fas fa-video text-secondary-400 dark:text-gray-500 mr-1"></i>
-                                ${alert.camera_name}
-                            </span>
-                        </div>
-                        ` : ''}
-                        ${alert.confidence_score ? `
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">AI Confidence:</span>
-                            <span class="text-body-md font-medium text-secondary-900 dark:text-white">
-                                ${alert.confidence_score}%
-                            </span>
-                        </div>
-                        ` : ''}
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Detected:</span>
-                            <span class="text-body-md font-medium text-secondary-900 dark:text-white">
-                                ${formatDate(alert.detected_at)}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-                
-                <div>
-                    <h4 class="text-heading-md text-secondary-900 dark:text-white mb-3">Alert Status</h4>
-                    <div class="space-y-3">
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Severity:</span>
-                            <span class="px-3 py-1 bg-${severityColor}-100 dark:bg-${severityColor}-900 text-${severityColor}-800 dark:text-${severityColor}-200 text-body-sm font-medium rounded-full">
-                                ${alert.severity.charAt(0).toUpperCase() + alert.severity.slice(1)}
-                            </span>
-                        </div>
-                        <div class="flex items-center">
-                            <span class="text-body-md text-secondary-600 dark:text-gray-400 w-20">Status:</span>
-                            <span class="px-3 py-1 bg-${statusColor}-100 dark:bg-${statusColor}-900 text-${statusColor}-800 dark:text-${statusColor}-200 text-body-sm font-medium rounded-full">
-                                ${alert.status.charAt(0).toUpperCase() + alert.status.slice(1)}
-                            </span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Captured Image -->
-            ${alert.image_path ? `
-            <div>
-                <h4 class="text-heading-md text-secondary-900 dark:text-white mb-3">
-                    <i class="fas fa-camera text-blue-500 mr-2"></i>
-                    Detection Image
-                </h4>
-                <div class="bg-secondary-50 dark:bg-gray-700 rounded-lg p-4">
-                    <div class="relative inline-block">
-                        <img src="${alert.image_path}" alt="Pest detection image" 
-                             class="max-w-full h-auto rounded-lg border border-secondary-200 dark:border-gray-600"
-                             style="max-height: 300px;">
-                        <div class="absolute top-2 right-2 bg-black bg-opacity-75 text-white px-2 py-1 rounded text-xs">
-                            AI Detection: ${alert.confidence_score}%
-                        </div>
-                    </div>
-                    <p class="text-body-sm text-secondary-600 dark:text-gray-400 mt-2">
-                        Image captured by ${alert.camera_name || 'Camera'} on ${formatDate(alert.detected_at)}
-                    </p>
-                </div>
-            </div>
-            ` : ''}
-            
-            <!-- Description -->
-            <div>
-                <h4 class="text-heading-md text-secondary-900 dark:text-white mb-3">Description</h4>
-                <div class="bg-secondary-50 dark:bg-gray-700 rounded-lg p-4">
-                    <p class="text-body-md text-secondary-700 dark:text-gray-300">${alert.description || 'No description available.'}</p>
-                </div>
-            </div>
-            
-            <!-- Suggested Actions -->
-            <div>
-                <h4 class="text-heading-md text-secondary-900 dark:text-white mb-3">
-                    <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
-                    Suggested Actions
-                </h4>
-                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p class="text-body-md text-blue-800 dark:text-blue-200">${alert.suggested_actions || 'No specific actions suggested. Consult with agricultural experts.'}</p>
-                </div>
-            </div>
-            
-            <!-- Action Buttons -->
-            <div class="flex flex-col sm:flex-row gap-3 pt-4 border-t border-secondary-200 dark:border-gray-700">
-                ${alert.status === 'new' ? `
-                    <button onclick="updateAlertStatus(${alert.id}, 'acknowledged'); closeAlertModal();" 
-                            class="btn-primary flex-1 sm:flex-none">
-                        <i class="fas fa-check mr-2"></i>
-                        Acknowledge Alert
-                    </button>
-                ` : ''}
-                
-                ${alert.status !== 'resolved' ? `
-                    <button onclick="updateAlertStatus(${alert.id}, 'resolved'); closeAlertModal();" 
-                            class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors duration-200 flex-1 sm:flex-none">
-                        <i class="fas fa-check-circle mr-2"></i>
-                        Mark as Resolved
-                    </button>
-                ` : ''}
-                
-                <button onclick="closeAlertModal()" 
-                        class="px-4 py-2 bg-secondary-600 hover:bg-secondary-700 text-white rounded-lg font-medium transition-colors duration-200 flex-1 sm:flex-none">
-                    Close
-                </button>
-            </div>
-        </div>
-    `;
-
-        document.getElementById('alert-details-modal').classList.remove('hidden');
-    }
-
-    function closeAlertModal() {
-        document.getElementById('alert-details-modal').classList.add('hidden');
+            }, 500);
+        }
     }
 
     // Close modal when clicking outside
-    document.getElementById('alert-details-modal').addEventListener('click', function(e) {
+    document.getElementById('camera-settings-modal').addEventListener('click', function(e) {
         if (e.target === this) {
-            closeAlertModal();
+            closeCameraSettings();
         }
-    });
-
-    // Format date for display
-    function formatDate(dateString) {
-        const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-    }
-
-    // Camera Management Functions
-    function loadCameraGrid() {
-        // Static camera data based on the database schema
-        const cameras = [{
-                id: 1,
-                name: 'Greenhouse A - North Camera',
-                location: 'Greenhouse A - North',
-                status: 'online',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                last_detection: '30 minutes ago',
-                confidence: 87.5
-            },
-            {
-                id: 2,
-                name: 'Greenhouse A - South Camera',
-                location: 'Greenhouse A - South',
-                status: 'online',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                last_detection: '1 hour ago',
-                confidence: 95.8
-            },
-            {
-                id: 3,
-                name: 'Field B - Center Camera',
-                location: 'Field B - Center',
-                status: 'offline',
-                resolution: '1280x720',
-                fps: 25,
-                detection_enabled: true,
-                last_detection: 'Never',
-                confidence: 0
-            },
-            {
-                id: 4,
-                name: 'Field A - Section 1 Camera',
-                location: 'Field A - Section 1',
-                status: 'online',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                last_detection: '4 hours ago',
-                confidence: 89.1
-            },
-            {
-                id: 5,
-                name: 'Field A - Section 2 Camera',
-                location: 'Field A - Section 2',
-                status: 'error',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: false,
-                last_detection: 'Never',
-                confidence: 0
-            },
-            {
-                id: 6,
-                name: 'Greenhouse A - Bed 1 Camera',
-                location: 'Greenhouse A - Bed 1',
-                status: 'online',
-                resolution: '1280x720',
-                fps: 25,
-                detection_enabled: true,
-                last_detection: '1 hour ago',
-                confidence: 91.7
-            }
-        ];
-
-        const cameraGrid = document.getElementById('camera-grid');
-        const cameraSelectionGrid = document.getElementById('camera-selection-grid');
-
-        if (cameraGrid) {
-            cameraGrid.innerHTML = cameras.map(camera => createCameraCard(camera)).join('');
-        }
-
-        if (cameraSelectionGrid) {
-            cameraSelectionGrid.innerHTML = cameras.map(camera => createCameraSelectionCard(camera)).join('');
-        }
-    }
-
-    function createCameraCard(camera) {
-        const statusColors = {
-            'online': 'green',
-            'offline': 'gray',
-            'error': 'red'
-        };
-
-        const statusColor = statusColors[camera.status] || 'gray';
-
-        return `
-        <div class="bg-white dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-4">
-            <div class="flex items-center justify-between mb-3">
-                <div class="flex items-center">
-                    <div class="w-8 h-8 bg-${statusColor}-100 dark:bg-${statusColor}-900 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-video text-${statusColor}-600 dark:text-${statusColor}-400 text-sm"></i>
-                    </div>
-                    <div class="min-w-0">
-                        <h4 class="text-sm font-medium text-gray-900 dark:text-white truncate">${camera.name}</h4>
-                        <p class="text-xs text-gray-600 dark:text-gray-400 truncate">${camera.location}</p>
-                    </div>
-                </div>
-                <span class="px-2 py-1 bg-${statusColor}-100 dark:bg-${statusColor}-900 text-${statusColor}-800 dark:text-${statusColor}-200 text-xs font-medium rounded-full">
-                    ${camera.status.charAt(0).toUpperCase() + camera.status.slice(1)}
-                </span>
-            </div>
-            
-            <div class="space-y-2 text-xs">
-                <div class="flex justify-between">
-                    <span class="text-gray-600 dark:text-gray-400">Resolution:</span>
-                    <span class="text-gray-900 dark:text-white font-medium">${camera.resolution}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600 dark:text-gray-400">FPS:</span>
-                    <span class="text-gray-900 dark:text-white font-medium">${camera.fps}</span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600 dark:text-gray-400">AI Detection:</span>
-                    <span class="text-gray-900 dark:text-white font-medium">
-                        ${camera.detection_enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-                <div class="flex justify-between">
-                    <span class="text-gray-600 dark:text-gray-400">Last Detection:</span>
-                    <span class="text-gray-900 dark:text-white font-medium">${camera.last_detection}</span>
-                </div>
-                ${camera.confidence > 0 ? `
-                <div class="flex justify-between">
-                    <span class="text-gray-600 dark:text-gray-400">Confidence:</span>
-                    <span class="text-gray-900 dark:text-white font-medium">${camera.confidence}%</span>
-                </div>
-                ` : ''}
-            </div>
-            
-            <div class="mt-4 flex gap-2">
-                <button onclick="selectCamera(${camera.id})" 
-                        class="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded-lg font-medium transition-colors duration-200">
-                    <i class="fas fa-cog mr-1"></i>Configure
-                </button>
-                ${camera.status === 'online' ? `
-                <button onclick="viewLiveFeed(${camera.id})" 
-                        class="flex-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-xs rounded-lg font-medium transition-colors duration-200">
-                    <i class="fas fa-eye mr-1"></i>View Live
-                </button>
-                ` : ''}
-            </div>
-        </div>
-    `;
-    }
-
-    function createCameraSelectionCard(camera) {
-        const statusColors = {
-            'online': 'green',
-            'offline': 'gray',
-            'error': 'red'
-        };
-
-        const statusColor = statusColors[camera.status] || 'gray';
-
-        return `
-        <div class="camera-selection-card bg-white dark:bg-gray-700 rounded-lg border-2 border-secondary-200 dark:border-gray-600 p-4 cursor-pointer hover:border-primary-500 dark:hover:border-primary-400 transition-colors duration-200" 
-             onclick="selectCamera(${camera.id})">
-            <div class="flex items-center justify-between mb-2">
-                <div class="flex items-center">
-                    <div class="w-8 h-8 bg-${statusColor}-100 dark:bg-${statusColor}-900 rounded-lg flex items-center justify-center mr-3">
-                        <i class="fas fa-video text-${statusColor}-600 dark:text-${statusColor}-400"></i>
-                    </div>
-                    <div>
-                        <h5 class="text-body-md font-medium text-secondary-900 dark:text-white">${camera.name}</h5>
-                        <p class="text-body-sm text-secondary-600 dark:text-gray-400">${camera.location}</p>
-                    </div>
-                </div>
-                <span class="px-2 py-1 bg-${statusColor}-100 dark:bg-${statusColor}-900 text-${statusColor}-800 dark:text-${statusColor}-200 text-body-xs font-medium rounded-full">
-                    ${camera.status.charAt(0).toUpperCase() + camera.status.slice(1)}
-                </span>
-            </div>
-        </div>
-    `;
-    }
-
-    function toggleCameraSettings() {
-        document.getElementById('camera-settings-modal').classList.remove('hidden');
-        loadCameraGrid();
-    }
-
-    function closeCameraSettingsModal() {
-        document.getElementById('camera-settings-modal').classList.add('hidden');
-        document.getElementById('camera-settings-form').classList.add('hidden');
-        document.getElementById('live-preview-area').classList.add('hidden');
-    }
-
-    function selectCamera(cameraId) {
-        // Static camera data - in real implementation, this would come from database
-        const cameras = {
-            1: {
-                id: 1,
-                name: 'Greenhouse A - North Camera',
-                location: 'Greenhouse A - North',
-                ip_address: '192.168.1.101',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                detection_sensitivity: 'high'
-            },
-            2: {
-                id: 2,
-                name: 'Greenhouse A - South Camera',
-                location: 'Greenhouse A - South',
-                ip_address: '192.168.1.102',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                detection_sensitivity: 'medium'
-            },
-            3: {
-                id: 3,
-                name: 'Field B - Center Camera',
-                location: 'Field B - Center',
-                ip_address: '192.168.1.103',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1280x720',
-                fps: 25,
-                detection_enabled: true,
-                detection_sensitivity: 'medium'
-            },
-            4: {
-                id: 4,
-                name: 'Field A - Section 1 Camera',
-                location: 'Field A - Section 1',
-                ip_address: '192.168.1.104',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: true,
-                detection_sensitivity: 'high'
-            },
-            5: {
-                id: 5,
-                name: 'Field A - Section 2 Camera',
-                location: 'Field A - Section 2',
-                ip_address: '192.168.1.105',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1920x1080',
-                fps: 30,
-                detection_enabled: false,
-                detection_sensitivity: 'low'
-            },
-            6: {
-                id: 6,
-                name: 'Greenhouse A - Bed 1 Camera',
-                location: 'Greenhouse A - Bed 1',
-                ip_address: '192.168.1.106',
-                port: 80,
-                username: 'admin',
-                camera_type: 'ip_camera',
-                resolution: '1280x720',
-                fps: 25,
-                detection_enabled: true,
-                detection_sensitivity: 'high'
-            }
-        };
-
-        const camera = cameras[cameraId];
-        if (!camera) return;
-
-        // Populate form fields
-        document.getElementById('selected-camera-id').value = camera.id;
-        document.getElementById('camera-name').value = camera.name;
-        document.getElementById('camera-location').value = camera.location;
-        document.getElementById('camera-ip').value = camera.ip_address;
-        document.getElementById('camera-port').value = camera.port;
-        document.getElementById('camera-username').value = camera.username;
-        document.getElementById('camera-type').value = camera.camera_type;
-        document.getElementById('camera-resolution').value = camera.resolution;
-        document.getElementById('camera-fps').value = camera.fps;
-        document.getElementById('detection-enabled').checked = camera.detection_enabled;
-        document.getElementById('detection-sensitivity').value = camera.detection_sensitivity;
-
-        // Show/hide authentication fields based on camera type
-        const authSection = document.getElementById('camera-auth');
-        if (camera.camera_type === 'ip_camera') {
-            authSection.classList.remove('hidden');
-        } else {
-            authSection.classList.add('hidden');
-        }
-
-        // Show the settings form
-        document.getElementById('camera-settings-form').classList.remove('hidden');
-
-        // Highlight selected camera
-        document.querySelectorAll('.camera-selection-card').forEach(card => {
-            card.classList.remove('border-primary-500', 'dark:border-primary-400');
-            card.classList.add('border-secondary-200', 'dark:border-gray-600');
-        });
-
-        const selectedCard = document.querySelector(`[onclick="selectCamera(${cameraId})"]`);
-        if (selectedCard) {
-            selectedCard.classList.remove('border-secondary-200', 'dark:border-gray-600');
-            selectedCard.classList.add('border-primary-500', 'dark:border-primary-400');
-        }
-    }
-
-    function testCameraConnection() {
-        const cameraId = document.getElementById('selected-camera-id').value;
-        const ip = document.getElementById('camera-ip').value;
-        const port = document.getElementById('camera-port').value;
-
-        if (!ip || !port) {
-            showToast('Please enter IP address and port', 'error');
-            return;
-        }
-
-        showToast('Testing camera connection...', 'info');
-
-        const formData = new FormData();
-        formData.append('action', 'test_camera_connection');
-        formData.append('ip_address', ip);
-        formData.append('port', port);
-
-        fetch('pest_detection.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message, 'success');
-                } else {
-                    showToast(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Connection test failed', 'error');
-            });
-    }
-
-    function startLivePreview() {
-        const cameraId = document.getElementById('selected-camera-id').value;
-        const cameraName = document.getElementById('camera-name').value;
-
-        if (!cameraId) {
-            showToast('Please select a camera first', 'error');
-            return;
-        }
-
-        // Show preview area
-        document.getElementById('live-preview-area').classList.remove('hidden');
-
-        // Simulate live feed (in real implementation, this would connect to actual camera)
-        const previewArea = document.getElementById('camera-preview');
-        previewArea.innerHTML = `
-        <div class="w-full h-full bg-gray-800 flex items-center justify-center relative">
-            <div class="text-white text-center">
-                <div class="animate-pulse">
-                    <i class="fas fa-video text-4xl mb-2"></i>
-                    <p class="text-lg font-medium">${cameraName}</p>
-                    <p class="text-sm opacity-75">Live Feed Active</p>
-                    <div class="mt-4 flex justify-center">
-                        <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-                        <span class="ml-2 text-sm">REC</span>
-                    </div>
-                </div>
-            </div>
-            <div class="absolute top-2 left-2 bg-black bg-opacity-50 text-white px-2 py-1 rounded text-xs">
-                ${new Date().toLocaleTimeString()}
-            </div>
-            <div class="absolute top-2 right-2 bg-green-500 text-white px-2 py-1 rounded text-xs">
-                AI Detection: ON
-            </div>
-        </div>
-    `;
-
-        showToast('Live preview started', 'success');
-    }
-
-    function stopLivePreview() {
-        const previewArea = document.getElementById('camera-preview');
-        previewArea.innerHTML = `
-        <div class="w-full h-full bg-gray-900 flex items-center justify-center">
-            <div class="text-white text-center">
-                <i class="fas fa-video text-4xl mb-2"></i>
-                <p>Camera feed will appear here</p>
-            </div>
-        </div>
-    `;
-
-        showToast('Live preview stopped', 'info');
-    }
-
-    function captureTestImage() {
-        const cameraId = document.getElementById('selected-camera-id').value;
-        const cameraName = document.getElementById('camera-name').value;
-
-        if (!cameraId) {
-            showToast('Please select a camera first', 'error');
-            return;
-        }
-
-        showToast(`Capturing test image from ${cameraName}...`, 'info');
-
-        const formData = new FormData();
-        formData.append('action', 'capture_test_image');
-        formData.append('camera_id', cameraId);
-
-        fetch('pest_detection.php', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    showToast(data.message, 'success');
-
-                    if (data.analysis) {
-                        setTimeout(() => {
-                            if (data.analysis.pests_detected) {
-                                showToast(`AI Detection: ${data.analysis.pest_type} detected with ${data.analysis.confidence}% confidence (${data.analysis.severity} severity)`, 'warning');
-                                setTimeout(() => {
-                                    showToast(data.analysis.recommendation, 'info');
-                                }, 2000);
-                            } else {
-                                showToast(`AI Analysis: ${data.analysis.recommendation} (${data.analysis.confidence}% confidence)`, 'success');
-                            }
-                        }, 1500);
-                    }
-                } else {
-                    showToast(data.message, 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('Failed to capture test image', 'error');
-            });
-    }
-
-    function viewLiveFeed(cameraId) {
-        selectCamera(cameraId);
-        toggleCameraSettings();
-        setTimeout(() => {
-            startLivePreview();
-        }, 500);
-    }
-
-    // Live Feed Functionality
-    let feedUptime = 0;
-    let detectionCount = 3;
-    let lastScanTime = 2;
-    let detectionBoxesVisible = true;
-    let activeCameraId = 1;
-
-    // Camera data
-    const cameras = {
-        1: {
-            name: 'Greenhouse A - North',
-            location: 'Greenhouse A - North'
-        },
-        2: {
-            name: 'Greenhouse A - South',
-            location: 'Greenhouse A - South'
-        },
-        4: {
-            name: 'Field A - Section 1',
-            location: 'Field A - Section 1'
-        },
-        6: {
-            name: 'Greenhouse A - Bed 1',
-            location: 'Greenhouse A - Bed 1'
-        }
-    };
-
-    // Update feed statistics
-    function updateFeedStats() {
-        feedUptime++;
-        lastScanTime++;
-
-        // Update uptime display
-        const hours = Math.floor(feedUptime / 3600);
-        const minutes = Math.floor((feedUptime % 3600) / 60);
-        const seconds = feedUptime % 60;
-        const uptimeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
-
-        const uptimeElement = document.getElementById('feed-uptime');
-        if (uptimeElement) {
-            uptimeElement.textContent = uptimeStr;
-        }
-
-        // Update last scan time
-        const lastScanElement = document.getElementById('last-scan-time');
-        if (lastScanElement) {
-            if (lastScanTime < 60) {
-                lastScanElement.textContent = `${lastScanTime} seconds ago`;
-            } else {
-                const mins = Math.floor(lastScanTime / 60);
-                lastScanElement.textContent = `${mins} minute${mins > 1 ? 's' : ''} ago`;
-            }
-        }
-
-        // Simulate new scan every 10-15 seconds
-        if (lastScanTime > Math.random() * 5 + 10) {
-            simulateNewScan();
-            lastScanTime = 0;
-        }
-    }
-
-    // Simulate AI detection scan
-    function simulateNewScan() {
-        // 30% chance of detecting something
-        if (Math.random() < 0.3) {
-            const pests = ['Aphids', 'Spider Mites', 'Whiteflies', 'Thrips', 'Caterpillars'];
-            const severities = ['Low', 'Medium', 'High'];
-            const colors = ['green', 'yellow', 'red'];
-
-            const pest = pests[Math.floor(Math.random() * pests.length)];
-            const severityIndex = Math.floor(Math.random() * severities.length);
-            const severity = severities[severityIndex];
-            const color = colors[severityIndex];
-            const confidence = (Math.random() * 20 + 80).toFixed(1); // 80-100%
-
-            detectionCount++;
-            const countElement = document.getElementById('detections-count');
-            if (countElement) {
-                countElement.textContent = detectionCount;
-            }
-
-            // Add detection box
-            addDetectionBox(pest, confidence);
-
-            // Add to recent detections
-            addRecentDetection(pest, severity, color, confidence);
-
-            // Show toast notification
-            if (typeof showToast === 'function') {
-                showToast(`${pest} detected with ${confidence}% confidence`, 'warning');
-            }
-        }
-    }
-
-    // Add detection box overlay
-    function addDetectionBox(pest, confidence) {
-        if (!detectionBoxesVisible) return;
-
-        const container = document.getElementById('detection-boxes');
-        if (!container) return;
-
-        const box = document.createElement('div');
-
-        // Random position
-        const left = Math.random() * 70 + 10; // 10-80%
-        const top = Math.random() * 60 + 20; // 20-80%
-
-        box.className = 'absolute border-2 border-red-500 bg-red-500 bg-opacity-20 rounded';
-        box.style.left = left + '%';
-        box.style.top = top + '%';
-        box.style.width = '80px';
-        box.style.height = '60px';
-
-        box.innerHTML = `
-            <div class="absolute -top-8 left-0 bg-red-500 text-white px-2 py-1 rounded text-xs whitespace-nowrap">
-                ${pest} (${confidence}%)
-            </div>
-        `;
-
-        container.appendChild(box);
-
-        // Remove after 5 seconds
-        setTimeout(() => {
-            if (container.contains(box)) {
-                container.removeChild(box);
-            }
-        }, 5000);
-    }
-
-    // Add recent detection to history
-    function addRecentDetection(pest, severity, color, confidence) {
-        const container = document.getElementById('recent-detections');
-        if (!container) return;
-
-        const detection = document.createElement('div');
-
-        detection.className = `flex items-start gap-3 p-3 bg-${color}-50 dark:bg-${color}-900/20 border border-${color}-200 dark:border-${color}-800 rounded-lg`;
-        detection.innerHTML = `
-            <div class="w-8 h-8 bg-${color}-100 dark:bg-${color}-900 rounded-lg flex items-center justify-center flex-shrink-0">
-                <i class="fas fa-bug text-${color}-600 dark:text-${color}-400 text-sm"></i>
-            </div>
-            <div class="flex-1">
-                <div class="flex items-center justify-between mb-1">
-                    <h4 class="text-sm font-medium text-gray-900 dark:text-white">${pest} Detected</h4>
-                    <span class="text-xs text-gray-500">Just now</span>
-                </div>
-                <p class="text-xs text-gray-600 dark:text-gray-400 mb-2">${cameras[activeCameraId].location} | Confidence: ${confidence}%</p>
-                <div class="flex items-center gap-2">
-                    <span class="px-2 py-1 bg-${color}-100 dark:bg-${color}-900 text-${color}-800 dark:text-${color}-200 text-xs font-medium rounded-full">${severity} Severity</span>
-                    <button onclick="viewDetectionDetails(${Date.now()})" class="text-blue-600 dark:text-blue-400 hover:text-blue-700 text-xs font-medium">View Details</button>
-                </div>
-            </div>
-        `;
-
-        // Add to top of list
-        container.insertBefore(detection, container.firstChild);
-
-        // Keep only last 5 detections
-        while (container.children.length > 5) {
-            container.removeChild(container.lastChild);
-        }
-    }
-
-    // Live feed controls
-    function stopLiveFeed() {
-        const feedContainer = document.getElementById('camera-feed');
-        if (!feedContainer) return;
-
-        feedContainer.innerHTML = `
-            <div class="text-center text-gray-400">
-                <i class="fas fa-video-slash text-6xl mb-4"></i>
-                <h4 class="text-xl font-semibold mb-2">Live Feed Stopped</h4>
-                <p class="text-gray-500 mb-4">Camera feed has been disconnected</p>
-                <button onclick="startLiveFeed()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">
-                    <i class="fas fa-play mr-2"></i>Start Feed
-                </button>
-            </div>
-        `;
-
-        // Clear detection boxes
-        const detectionBoxes = document.getElementById('detection-boxes');
-        if (detectionBoxes) {
-            detectionBoxes.innerHTML = '';
-        }
-
-        if (typeof showToast === 'function') {
-            showToast('Live feed stopped', 'info');
-        }
-    }
-
-    function startLiveFeed() {
-        location.reload(); // Simple restart for demo
-    }
-
-    function captureSnapshot() {
-        if (typeof showToast === 'function') {
-            showToast('Snapshot captured and saved to gallery', 'success');
-        }
-
-        // Simulate flash effect
-        const container = document.getElementById('live-feed-container');
-        if (container) {
-            container.style.filter = 'brightness(1.5)';
-            setTimeout(() => {
-                container.style.filter = 'brightness(1)';
-            }, 200);
-        }
-    }
-
-    function toggleDetectionBoxes() {
-        detectionBoxesVisible = !detectionBoxesVisible;
-        const container = document.getElementById('detection-boxes');
-
-        if (container) {
-            if (detectionBoxesVisible) {
-                container.style.display = 'block';
-                if (typeof showToast === 'function') {
-                    showToast('Detection boxes enabled', 'info');
-                }
-            } else {
-                container.style.display = 'none';
-                if (typeof showToast === 'function') {
-                    showToast('Detection boxes disabled', 'info');
-                }
-            }
-        }
-    }
-
-    function fullscreenFeed() {
-        const container = document.getElementById('live-feed-container');
-        if (container) {
-            if (container.requestFullscreen) {
-                container.requestFullscreen();
-            } else if (container.webkitRequestFullscreen) {
-                container.webkitRequestFullscreen();
-            } else if (container.msRequestFullscreen) {
-                container.msRequestFullscreen();
-            }
-        }
-    }
-
-    function viewDetectionDetails(id) {
-        if (typeof showToast === 'function') {
-            showToast('Opening detection details...', 'info');
-        }
-        // In real implementation, this would open a detailed view
-    }
-
-    // Update live time
-    function updateTimeAndDate() {
-        const now = new Date();
-        const timeString = now.toLocaleTimeString('en-US', {
-            hour12: false,
-            hour: '2-digit',
-            minute: '2-digit'
-        });
-        const dayString = now.toLocaleDateString('en-US', {
-            weekday: 'short',
-            day: 'numeric',
-            month: 'short'
-        });
-
-        const timeElement = document.getElementById('live-time');
-        const dateElement = document.getElementById('live-date');
-
-        if (timeElement) {
-            timeElement.style.transform = 'scale(1.1)';
-            timeElement.textContent = timeString;
-            setTimeout(() => {
-                timeElement.style.transform = 'scale(1)';
-            }, 200);
-        }
-
-        if (dateElement) {
-            dateElement.textContent = dayString;
-        }
-    }
-
-    // Handle camera settings form submission
-    document.addEventListener('DOMContentLoaded', function() {
-        const cameraConfigForm = document.getElementById('camera-config-form');
-        if (cameraConfigForm) {
-            cameraConfigForm.addEventListener('submit', function(e) {
-                e.preventDefault();
-
-                const formData = new FormData(this);
-                formData.append('action', 'update_camera_settings');
-
-                const cameraName = formData.get('camera_name');
-                const submitButton = this.querySelector('button[type="submit"]');
-                const hideLoading = showLoading(submitButton);
-
-                fetch('pest_detection.php', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        hideLoading();
-                        if (data.success) {
-                            showToast(data.message, 'success');
-                            setTimeout(() => {
-                                closeCameraSettingsModal();
-                                loadCameraGrid(); // Refresh camera grid
-                            }, 1000);
-                        } else {
-                            showToast(data.message, 'error');
-                        }
-                    })
-                    .catch(error => {
-                        hideLoading();
-                        console.error('Error:', error);
-                        showToast('Failed to save camera settings', 'error');
-                    });
-            });
-        }
-
-        // Load camera grid on page load
-        loadCameraGrid();
-
-        // Handle camera type change to show/hide auth fields
-        const cameraTypeSelect = document.getElementById('camera-type');
-        if (cameraTypeSelect) {
-            cameraTypeSelect.addEventListener('change', function() {
-                const authSection = document.getElementById('camera-auth');
-                if (this.value === 'ip_camera') {
-                    authSection.classList.remove('hidden');
-                } else {
-                    authSection.classList.add('hidden');
-                }
-            });
-        }
-
-        // Initialize live feed functionality
-        const cameraSelect = document.getElementById('active-camera-select');
-        if (cameraSelect) {
-            cameraSelect.addEventListener('change', function() {
-                activeCameraId = parseInt(this.value);
-                const camera = cameras[activeCameraId];
-
-                // Update camera info in feed
-                const feedContainer = document.getElementById('camera-feed');
-                const cameraInfo = feedContainer.querySelector('.text-gray-300');
-                if (cameraInfo) {
-                    cameraInfo.textContent = camera.name;
-                }
-
-                if (typeof showToast === 'function') {
-                    showToast(`Switched to ${camera.name}`, 'success');
-                }
-
-                // Reset detection boxes
-                const detectionBoxes = document.getElementById('detection-boxes');
-                if (detectionBoxes) {
-                    detectionBoxes.innerHTML = '';
-                }
-            });
-        }
-
-        // Start live time updates
-        updateTimeAndDate();
-        setInterval(updateTimeAndDate, 1000);
-
-        // Start feed statistics updates
-        setInterval(updateFeedStats, 1000);
-
-        // Initial detection simulation after 3 seconds
-        setTimeout(() => {
-            simulateNewScan();
-        }, 3000);
     });
 </script>
 

@@ -19,6 +19,7 @@ $currentUser = [
 ];
 
 // Helper functions are now centralized in config/database.php
+// getTimeAgo() is defined in includes/notifications.php
 
 // Static sensor data for MVP with weekly trends
 function getCurrentSensorReadings()
@@ -50,31 +51,79 @@ function getCurrentSensorReadings()
 
 function getRecentPestAlerts()
 {
-    // Static data for MVP
-    return [];
+    try {
+        $pdo = getDatabaseConnection();
+
+        $stmt = $pdo->query("
+            SELECT 
+                id,
+                pest_type,
+                severity,
+                confidence_score,
+                detected_at,
+                is_read
+            FROM pest_alerts 
+            ORDER BY detected_at DESC 
+            LIMIT 5
+        ");
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        error_log("Error fetching pest alerts: " . $e->getMessage());
+        return [];
+    }
 }
 
 function getDailyStatistics()
 {
-    // Static data for MVP
-    return [
-        'daily_averages' => [
-            ['sensor_type' => 'temperature', 'daily_avg' => 24.5, 'unit' => '°C'],
-            ['sensor_type' => 'humidity', 'daily_avg' => 68.2, 'unit' => '%'],
-            ['sensor_type' => 'soil_moisture', 'daily_avg' => 45.8, 'unit' => '%']
-        ],
-        'alert_stats' => [
-            'total_alerts' => 0,
-            'new_alerts' => 0,
-            'critical_alerts' => 0,
-            'today_alerts' => 0
-        ],
-        'sensor_stats' => [
-            'total_sensors' => 9,
-            'online_sensors' => 9,
-            'offline_sensors' => 0
-        ]
-    ];
+    try {
+        $pdo = getDatabaseConnection();
+
+        // Get alert statistics
+        $stmt = $pdo->query("
+            SELECT 
+                COUNT(*) as total_alerts,
+                COUNT(CASE WHEN is_read = FALSE THEN 1 END) as new_alerts,
+                COUNT(CASE WHEN severity = 'critical' THEN 1 END) as critical_alerts,
+                COUNT(CASE WHEN DATE(detected_at) = CURDATE() THEN 1 END) as today_alerts
+            FROM pest_alerts
+        ");
+        $alertStats = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'daily_averages' => [
+                ['sensor_type' => 'temperature', 'daily_avg' => 24.5, 'unit' => '°C'],
+                ['sensor_type' => 'humidity', 'daily_avg' => 68.2, 'unit' => '%'],
+                ['sensor_type' => 'soil_moisture', 'daily_avg' => 45.8, 'unit' => '%']
+            ],
+            'alert_stats' => $alertStats,
+            'sensor_stats' => [
+                'total_sensors' => 9,
+                'online_sensors' => 9,
+                'offline_sensors' => 0
+            ]
+        ];
+    } catch (Exception $e) {
+        error_log("Error fetching daily statistics: " . $e->getMessage());
+        return [
+            'daily_averages' => [
+                ['sensor_type' => 'temperature', 'daily_avg' => 24.5, 'unit' => '°C'],
+                ['sensor_type' => 'humidity', 'daily_avg' => 68.2, 'unit' => '%'],
+                ['sensor_type' => 'soil_moisture', 'daily_avg' => 45.8, 'unit' => '%']
+            ],
+            'alert_stats' => [
+                'total_alerts' => 0,
+                'new_alerts' => 0,
+                'critical_alerts' => 0,
+                'today_alerts' => 0
+            ],
+            'sensor_stats' => [
+                'total_sensors' => 9,
+                'online_sensors' => 9,
+                'offline_sensors' => 0
+            ]
+        ];
+    }
 }
 
 // Get data for dashboard
@@ -378,44 +427,83 @@ include 'includes/navigation.php';
             <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
                 <div class="flex items-center justify-between mb-3">
                     <h3 class="text-sm font-semibold text-gray-900 dark:text-white" data-translate="pest_detection">Pest Detection</h3>
-                    <a href="pest_detection.php" class="text-green-600 hover:text-green-700 text-xs font-medium">View</a>
+                    <a href="pest_detection.php" class="text-green-600 hover:text-green-700 text-xs font-medium">View All</a>
                 </div>
-                <div class="text-center py-4">
-                    <div class="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-2">
-                        <i class="fas fa-shield-alt text-green-600 dark:text-green-400"></i>
+
+                <?php if (empty($recentAlerts)): ?>
+                    <div class="text-center py-4">
+                        <div class="w-12 h-12 bg-green-100 dark:bg-green-900 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <i class="fas fa-shield-alt text-green-600 dark:text-green-400"></i>
+                        </div>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">No threats detected</p>
+                        <p class="text-xs text-green-600 font-medium">Farm is secure</p>
                     </div>
-                    <p class="text-xs text-gray-600 dark:text-gray-400">No threats detected</p>
-                    <p class="text-xs text-green-600 font-medium">Farm is secure</p>
-                </div>
+                <?php else: ?>
+                    <div class="space-y-2 max-h-64 overflow-y-auto">
+                        <?php
+                        $severityColors = [
+                            'critical' => ['bg' => 'red', 'icon' => 'fa-exclamation-triangle'],
+                            'high' => ['bg' => 'orange', 'icon' => 'fa-exclamation-circle'],
+                            'medium' => ['bg' => 'yellow', 'icon' => 'fa-info-circle'],
+                            'low' => ['bg' => 'blue', 'icon' => 'fa-check-circle']
+                        ];
+
+                        foreach ($recentAlerts as $alert):
+                            $color = $severityColors[$alert['severity']] ?? $severityColors['low'];
+                            $detectedTime = date('M j, g:i A', strtotime($alert['detected_at']));
+                        ?>
+                            <a href="pest_detection.php?alert_id=<?php echo $alert['id']; ?>"
+                                class="block p-2 bg-<?php echo $color['bg']; ?>-50 dark:bg-<?php echo $color['bg']; ?>-900/20 border border-<?php echo $color['bg']; ?>-200 dark:border-<?php echo $color['bg']; ?>-800 rounded-lg hover:bg-<?php echo $color['bg']; ?>-100 dark:hover:bg-<?php echo $color['bg']; ?>-900/30 transition-colors">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-6 h-6 bg-<?php echo $color['bg']; ?>-100 dark:bg-<?php echo $color['bg']; ?>-900 rounded flex items-center justify-center flex-shrink-0">
+                                        <i class="fas <?php echo $color['icon']; ?> text-<?php echo $color['bg']; ?>-600 dark:text-<?php echo $color['bg']; ?>-400 text-xs"></i>
+                                    </div>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-xs font-medium text-gray-900 dark:text-white truncate">
+                                            <?php echo htmlspecialchars($alert['pest_type']); ?>
+                                        </p>
+                                        <div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+                                            <span><?php echo round($alert['confidence_score'], 1); ?>%</span>
+                                            <span>•</span>
+                                            <span><?php echo $detectedTime; ?></span>
+                                        </div>
+                                    </div>
+                                    <?php if (!$alert['is_read']): ?>
+                                        <span class="w-2 h-2 bg-<?php echo $color['bg']; ?>-500 rounded-full flex-shrink-0"></span>
+                                    <?php endif; ?>
+                                </div>
+                            </a>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php
+                    // Count by severity
+                    $criticalCount = count(array_filter($recentAlerts, fn($a) => $a['severity'] === 'critical'));
+                    $highCount = count(array_filter($recentAlerts, fn($a) => $a['severity'] === 'high'));
+                    ?>
+
+                    <?php if ($criticalCount > 0 || $highCount > 0): ?>
+                        <div class="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
+                            <div class="flex items-center justify-between text-xs">
+                                <?php if ($criticalCount > 0): ?>
+                                    <span class="text-red-600 dark:text-red-400 font-medium">
+                                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                                        <?php echo $criticalCount; ?> Critical
+                                    </span>
+                                <?php endif; ?>
+                                <?php if ($highCount > 0): ?>
+                                    <span class="text-orange-600 dark:text-orange-400 font-medium">
+                                        <i class="fas fa-exclamation-circle mr-1"></i>
+                                        <?php echo $highCount; ?> High
+                                    </span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+                <?php endif; ?>
             </div>
 
-            <!-- Quick Reports -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-                <div class="flex items-center justify-between mb-3">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Quick Reports</h3>
-                    <a href="reports.php" class="text-green-600 hover:text-green-700 text-xs font-medium">Generate</a>
-                </div>
-                <div class="space-y-2">
-                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                        <div class="flex items-center gap-2">
-                            <i class="fas fa-thermometer-half text-red-600 dark:text-red-400 text-xs"></i>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">Temperature Report</span>
-                        </div>
-                    </button>
-                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                        <div class="flex items-center gap-2">
-                            <i class="fas fa-tint text-blue-600 dark:text-blue-400 text-xs"></i>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">Humidity Report</span>
-                        </div>
-                    </button>
-                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
-                        <div class="flex items-center gap-2">
-                            <i class="fas fa-seedling text-green-600 dark:text-green-400 text-xs"></i>
-                            <span class="text-xs font-medium text-gray-900 dark:text-white">Soil Report</span>
-                        </div>
-                    </button>
-                </div>
-            </div>
+            
         </div>
     </div>
 
@@ -477,48 +565,33 @@ include 'includes/navigation.php';
             </div>
         </div>
 
-        <!-- Farm Statistics -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Farm Statistics</h3>
-            <div class="space-y-3">
-                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-green-100 dark:bg-green-900 rounded flex items-center justify-center">
-                            <i class="fas fa-leaf text-green-600 dark:text-green-400 text-xs"></i>
-                        </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Crop Health</span>
-                    </div>
-                    <span class="px-2 py-0.5 bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200 text-xs font-medium rounded-full">Excellent</span>
+        <!-- Quick Reports -->
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Quick Reports</h3>
+                    <a href="reports.php" class="text-green-600 hover:text-green-700 text-xs font-medium">Generate</a>
                 </div>
-                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-blue-100 dark:bg-blue-900 rounded flex items-center justify-center">
+                <div class="space-y-2">
+                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-thermometer-half text-red-600 dark:text-red-400 text-xs"></i>
+                            <span class="text-xs font-medium text-gray-900 dark:text-white">Temperature Report</span>
+                        </div>
+                    </button>
+                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                        <div class="flex items-center gap-2">
                             <i class="fas fa-tint text-blue-600 dark:text-blue-400 text-xs"></i>
+                            <span class="text-xs font-medium text-gray-900 dark:text-white">Humidity Report</span>
                         </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Irrigation Status</span>
-                    </div>
-                    <span class="px-2 py-0.5 bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 text-xs font-medium rounded-full">Active</span>
-                </div>
-                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-yellow-100 dark:bg-yellow-900 rounded flex items-center justify-center">
-                            <i class="fas fa-seedling text-yellow-600 dark:text-yellow-400 text-xs"></i>
+                    </button>
+                    <button class="w-full text-left p-2 bg-gray-50 dark:bg-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-seedling text-green-600 dark:text-green-400 text-xs"></i>
+                            <span class="text-xs font-medium text-gray-900 dark:text-white">Soil Report</span>
                         </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Growth Stage</span>
-                    </div>
-                    <span class="px-2 py-0.5 bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200 text-xs font-medium rounded-full">Flowering</span>
-                </div>
-                <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                    <div class="flex items-center gap-2">
-                        <div class="w-6 h-6 bg-purple-100 dark:bg-purple-900 rounded flex items-center justify-center">
-                            <i class="fas fa-calendar text-purple-600 dark:text-purple-400 text-xs"></i>
-                        </div>
-                        <span class="text-xs font-medium text-gray-900 dark:text-white">Days to Harvest</span>
-                    </div>
-                    <span class="text-xs font-bold text-gray-900 dark:text-white">45 days</span>
+                    </button>
                 </div>
             </div>
-        </div>
     </div>
 
 

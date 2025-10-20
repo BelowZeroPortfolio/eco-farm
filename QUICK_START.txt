@@ -1,0 +1,62 @@
+================================================================================
+QUICK START GUIDE - IoT Farm Pest Detection System
+================================================================================
+
+INSTALLATION (One-time setup):
+================================================================================
+
+1. INSTALL XAMPP
+   Download: https://www.apachefriends.org/
+   Includes: PHP, MySQL, Apache web server
+
+2. INSTALL PYTHON 3.8+
+   Download: https://www.python.org/downloads/
+   ✓ CHECK "Add Python to PATH" during install
+
+3. INSTALL PYTHON PACKAGES
+   Open Command Prompt in project folder:
+   pip install flask ultralytics pillow opencv-python
+
+4. INSTALL COMPOSER
+   Download: https://getcomposer.org/download/
+   Then run in project folder:
+   composer install
+
+5. SETUP DATABASE
+   - Start XAMPP, click "Start" for Apache and MySQL
+   - Open: http://localhost/phpmyadmin
+   - Create database: "iot_farm_monitoring"
+   - Import: database/schema.sql
+   - Import: database/sample_data.sql (optional)
+
+6. CONFIGURE DATABASE
+   Edit: config/database.php
+   Set: DB_USER = 'root', DB_PASS = '' (empty for XAMPP)
+
+================================================================================
+RUNNING THE SYSTEM:
+================================================================================
+
+STEP 1: Start YOLO Service
+   Double-click: start_yolo_service.bat
+
+STEP 2: Start Apache
+   Open XAMPP Control Panel → Click "Start" for Apache
+
+STEP 3: Open Browser
+   Go to: http://localhost/your-project-folder/login.php
+   Login: admin / admin123
+
+STEP 4: Use Pest Detection
+   Click "Pest Detection" → Click "Start Detection"
+
+================================================================================
+TROUBLESHOOTING:
+================================================================================
+
+"Flask Service Not Running" → Run start_yolo_service.bat
+"Port 5000 in use" → Close other programs or restart computer
+Slow detection → Restart Flask service
+Database error → Check config/database.php settings
+
+================================================================================

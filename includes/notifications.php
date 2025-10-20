@@ -11,10 +11,66 @@
  */
 define('NOTIFICATION_TYPES', [
     'critical' => ['priority' => 1, 'color' => 'red', 'icon' => 'fa-exclamation-triangle'],
+    'high' => ['priority' => 2, 'color' => 'orange', 'icon' => 'fa-exclamation-circle'],
     'warning' => ['priority' => 2, 'color' => 'yellow', 'icon' => 'fa-exclamation-circle'],
+    'medium' => ['priority' => 3, 'color' => 'yellow', 'icon' => 'fa-info-circle'],
+    'low' => ['priority' => 4, 'color' => 'blue', 'icon' => 'fa-check-circle'],
     'info' => ['priority' => 3, 'color' => 'blue', 'icon' => 'fa-info-circle'],
-    'success' => ['priority' => 4, 'color' => 'green', 'icon' => 'fa-check-circle']
+    'success' => ['priority' => 5, 'color' => 'green', 'icon' => 'fa-check-circle']
 ]);
+
+/**
+ * Get pest alerts from database
+ */
+function getPestAlertNotifications($limit = null)
+{
+    try {
+        require_once 'config/database.php';
+        $pdo = getDatabaseConnection();
+
+        $query = "
+            SELECT 
+                id,
+                pest_type,
+                location,
+                severity,
+                confidence_score,
+                description,
+                detected_at,
+                is_read,
+                read_at
+            FROM pest_alerts 
+            ORDER BY detected_at DESC
+        ";
+
+        if ($limit) {
+            $query .= " LIMIT " . intval($limit);
+        }
+
+        $stmt = $pdo->query($query);
+        $pestAlerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Convert pest alerts to notification format
+        $notifications = [];
+        foreach ($pestAlerts as $alert) {
+            $notifications[] = [
+                'id' => 'pest_' . $alert['id'],
+                'type' => $alert['severity'], // critical, high, medium, low
+                'title' => ucfirst($alert['pest_type']) . ' Detected',
+                'message' => $alert['description'] ?? "Detected at {$alert['location']} with {$alert['confidence_score']}% confidence",
+                'timestamp' => $alert['detected_at'],
+                'read' => (bool)$alert['is_read'],
+                'action_url' => 'pest_detection.php?alert_id=' . $alert['id'],
+                'action_text' => 'View Details'
+            ];
+        }
+
+        return $notifications;
+    } catch (Exception $e) {
+        error_log("Error fetching pest alerts: " . $e->getMessage());
+        return [];
+    }
+}
 
 /**
  * Get sample notifications for demonstration
@@ -23,17 +79,7 @@ function getSampleNotifications()
 {
     return [
         [
-            'id' => 1,
-            'type' => 'critical',
-            'title' => 'Critical Pest Alert',
-            'message' => 'Severe aphid infestation detected in Greenhouse A. Immediate action required.',
-            'timestamp' => date('Y-m-d H:i:s', strtotime('-5 minutes')),
-            'read' => false,
-            'action_url' => 'pest_detection.php',
-            'action_text' => 'View Details'
-        ],
-        [
-            'id' => 2,
+            'id' => 'sample_1',
             'type' => 'warning',
             'title' => 'Sensor Offline',
             'message' => 'Temperature sensor in Field B has been offline for 2 hours.',
@@ -43,7 +89,7 @@ function getSampleNotifications()
             'action_text' => 'Check Sensors'
         ],
         [
-            'id' => 3,
+            'id' => 'sample_2',
             'type' => 'info',
             'title' => 'Daily Report Ready',
             'message' => 'Your daily farm monitoring report is now available for download.',
@@ -53,7 +99,7 @@ function getSampleNotifications()
             'action_text' => 'View Report'
         ],
         [
-            'id' => 4,
+            'id' => 'sample_3',
             'type' => 'success',
             'title' => 'System Update Complete',
             'message' => 'All sensors have been successfully updated to the latest firmware.',
@@ -61,26 +107,19 @@ function getSampleNotifications()
             'read' => true,
             'action_url' => null,
             'action_text' => null
-        ],
-        [
-            'id' => 5,
-            'type' => 'warning',
-            'title' => 'Low Soil Moisture',
-            'message' => 'Soil moisture levels in Zone C have dropped below optimal range.',
-            'timestamp' => date('Y-m-d H:i:s', strtotime('-30 minutes')),
-            'read' => false,
-            'action_url' => 'sensors.php',
-            'action_text' => 'View Sensors'
         ]
     ];
 }
 
 /**
- * Get notifications with priority sorting
+ * Get notifications with priority sorting (includes pest alerts)
  */
 function getNotifications($limit = null, $unreadOnly = false)
 {
-    $notifications = getSampleNotifications();
+    // Merge pest alerts with sample notifications
+    $pestAlerts = getPestAlertNotifications(20); // Get recent pest alerts
+    $sampleNotifications = getSampleNotifications();
+    $notifications = array_merge($pestAlerts, $sampleNotifications);
 
     // Filter unread only if requested
     if ($unreadOnly) {
@@ -89,10 +128,21 @@ function getNotifications($limit = null, $unreadOnly = false)
         });
     }
 
+    // Map severity levels to notification types for sorting
+    $severityToPriority = [
+        'critical' => 1,
+        'high' => 2,
+        'medium' => 3,
+        'low' => 4,
+        'warning' => 2,
+        'info' => 3,
+        'success' => 4
+    ];
+
     // Sort by priority (critical first) then by timestamp (newest first)
-    usort($notifications, function ($a, $b) {
-        $priorityA = NOTIFICATION_TYPES[$a['type']]['priority'];
-        $priorityB = NOTIFICATION_TYPES[$b['type']]['priority'];
+    usort($notifications, function ($a, $b) use ($severityToPriority) {
+        $priorityA = $severityToPriority[$a['type']] ?? 5;
+        $priorityB = $severityToPriority[$b['type']] ?? 5;
 
         if ($priorityA === $priorityB) {
             return strtotime($b['timestamp']) - strtotime($a['timestamp']);
@@ -110,14 +160,12 @@ function getNotifications($limit = null, $unreadOnly = false)
 }
 
 /**
- * Get unread notification count
+ * Get unread notification count (includes pest alerts)
  */
 function getUnreadNotificationCount()
 {
-    $notifications = getSampleNotifications();
-    return count(array_filter($notifications, function ($notification) {
-        return !$notification['read'];
-    }));
+    $notifications = getNotifications(null, true); // Get all unread
+    return count($notifications);
 }
 
 /**

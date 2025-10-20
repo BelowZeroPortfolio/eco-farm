@@ -76,7 +76,7 @@ class SecurityConfig
             'X-Content-Type-Options' => 'nosniff',
             'X-XSS-Protection' => '1; mode=block',
             'Referrer-Policy' => 'strict-origin-when-cross-origin',
-            'Permissions-Policy' => 'geolocation=(), microphone=(), camera=()',
+            'Permissions-Policy' => 'geolocation=(), microphone=(), camera=(self)',
             'Strict-Transport-Security' => 'max-age=31536000; includeSubDomains'
         ];
     }
@@ -92,7 +92,7 @@ class SecurityConfig
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com",
             "font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com",
             "img-src 'self' data: https:",
-            "connect-src 'self'",
+            "connect-src 'self' https://cdn.jsdelivr.net",
             "frame-ancestors 'none'",
             "base-uri 'self'",
             "form-action 'self'"

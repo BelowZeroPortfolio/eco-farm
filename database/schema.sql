@@ -1,11 +1,19 @@
--- IoT Farm Monitoring System Database Schema
--- This file contains the complete database schema for the farm monitoring system
+-- ============================================================================
+-- IoT Farm Monitoring System - Complete Database Setup
+-- ============================================================================
+-- This file contains the complete database schema with all migrations merged
+-- Run this file once to set up the entire database
+-- ============================================================================
 
 -- Create database
 CREATE DATABASE IF NOT EXISTS farm_database;
 USE farm_database;
 
--- Users table (extending existing structure)
+-- ============================================================================
+-- TABLES
+-- ============================================================================
+
+-- Users table
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50) NOT NULL UNIQUE,
@@ -74,7 +82,7 @@ CREATE TABLE IF NOT EXISTS cameras (
     INDEX idx_location (location)
 );
 
--- Pest alerts table for pest detection events (updated with camera reference)
+-- Pest alerts table with all fields (merged from migrations)
 CREATE TABLE IF NOT EXISTS pest_alerts (
     id INT AUTO_INCREMENT PRIMARY KEY,
     camera_id INT,
@@ -83,15 +91,24 @@ CREATE TABLE IF NOT EXISTS pest_alerts (
     severity ENUM('low', 'medium', 'high', 'critical') NOT NULL,
     status ENUM('new', 'acknowledged', 'resolved') DEFAULT 'new',
     confidence_score DECIMAL(5,2),
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP NULL,
+    read_by INT NULL,
+    notification_sent BOOLEAN DEFAULT FALSE,
+    notification_sent_at TIMESTAMP NULL,
     image_path VARCHAR(255),
     description TEXT,
     suggested_actions TEXT,
     detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (camera_id) REFERENCES cameras(id) ON DELETE SET NULL,
+    FOREIGN KEY (read_by) REFERENCES users(id) ON DELETE SET NULL,
     INDEX idx_camera_id (camera_id),
     INDEX idx_severity_status (severity, status),
-    INDEX idx_detected_at (detected_at)
+    INDEX idx_detected_at (detected_at),
+    INDEX idx_is_read (is_read),
+    INDEX idx_read_at (read_at),
+    INDEX idx_notification_sent (notification_sent)
 );
 
 -- User settings table for personalization
@@ -105,3 +122,17 @@ CREATE TABLE IF NOT EXISTS user_settings (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     UNIQUE KEY unique_user_setting (user_id, setting_key)
 );
+
+-- ============================================================================
+-- VERIFICATION
+-- ============================================================================
+
+-- Show all tables
+SHOW TABLES;
+
+-- Show pest_alerts structure
+DESCRIBE pest_alerts;
+
+-- ============================================================================
+-- Setup complete!
+-- ============================================================================

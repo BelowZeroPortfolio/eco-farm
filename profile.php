@@ -16,25 +16,95 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
     exit();
 }
 
-require_once 'config/database.php';
-require_once 'includes/language.php';
+// Include required files with proper error handling
+$configPath = __DIR__ . '/config/database.php';
+if (!file_exists($configPath)) {
+    die('Database configuration file not found at: ' . $configPath);
+}
+require_once $configPath;
+
+$langPath = __DIR__ . '/includes/language.php';
+if (file_exists($langPath)) {
+    require_once $langPath;
+}
+
+// Ensure database connection is available
+if (!function_exists('getDatabaseConnection')) {
+    die('Database configuration not loaded properly. getUserById function: ' . (function_exists('getUserById') ? 'EXISTS' : 'MISSING'));
+}
+
+/**
+ * Get user activity statistics
+ */
+function getUserStats($userId)
+{
+    try {
+        $pdo = getDatabaseConnection();
+
+        // Get pest alerts count for this user (if they created any)
+        $stmt = $pdo->prepare("
+            SELECT COUNT(*) as pest_count
+            FROM pest_alerts
+            WHERE DATE(detected_at) >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+        ");
+        $stmt->execute();
+        $pestData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        // Calculate days active
+        $stmt = $pdo->prepare("
+            SELECT DATEDIFF(NOW(), created_at) as days_active
+            FROM users
+            WHERE id = ?
+        ");
+        $stmt->execute([$userId]);
+        $userData = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'days_active' => $userData['days_active'] ?? 0,
+            'sessions' => rand(15, 50), // Placeholder - implement session tracking
+            'reports' => rand(5, 20), // Placeholder - implement report tracking
+            'uptime' => 98 // Placeholder
+        ];
+    } catch (Exception $e) {
+        error_log("Error fetching user stats: " . $e->getMessage());
+        return [
+            'days_active' => 0,
+            'sessions' => 0,
+            'reports' => 0,
+            'uptime' => 0
+        ];
+    }
+}
 
 // Get current user data
 $currentUserId = $_SESSION['user_id'];
-$currentUser = getUserById($currentUserId);
 
-// Fallback if getUserById fails
+// Get user data from database (this will also update session)
+$currentUser = getUserById($currentUserId, true);
+
+// Fallback to session data if database query fails
 if (!$currentUser) {
+    error_log("Profile page - getUserById failed, using session data");
     $currentUser = [
         'id' => $_SESSION['user_id'],
         'username' => $_SESSION['username'],
         'email' => $_SESSION['email'] ?? '',
         'role' => $_SESSION['role'] ?? 'student',
-        'status' => 'active',
+        'status' => $_SESSION['status'] ?? 'active',
         'created_at' => date('Y-m-d H:i:s'),
-        'last_login' => date('Y-m-d H:i:s')
+        'last_login' => $_SESSION['last_login'] ?? null,
+        'updated_at' => date('Y-m-d H:i:s')
     ];
 }
+
+// Ensure status field exists and has a valid value
+if (!isset($currentUser['status']) || empty($currentUser['status'])) {
+    $currentUser['status'] = $_SESSION['status'] ?? 'active';
+    error_log("Profile page - Status field missing, using session/default: " . $currentUser['status']);
+}
+
+// Get user statistics
+$userStats = getUserStats($currentUserId);
 
 $success = '';
 $error = '';
@@ -176,9 +246,9 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
 ?>
 
 <script>
-// Initialize language system for this page
-const pageLanguage = '<?php echo $currentLanguage; ?>';
-const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
+    // Initialize language system for this page
+    const pageLanguage = '<?php echo $currentLanguage; ?>';
+    const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
 </script>
 <script src="includes/language.js"></script>
 
@@ -270,29 +340,20 @@ const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
                             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                                 <div class="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                                     <div class="text-lg font-bold text-gray-900 dark:text-white">
-                                        <?php
-                                        if (isset($currentUser['created_at']) && $currentUser['created_at']) {
-                                            $memberSince = new DateTime($currentUser['created_at']);
-                                            $now = new DateTime();
-                                            $diff = $now->diff($memberSince);
-                                            echo $diff->days;
-                                        } else {
-                                            echo '0';
-                                        }
-                                        ?>
+                                        <?php echo $userStats['days_active']; ?>
                                     </div>
                                     <div class="text-xs text-gray-600 dark:text-gray-400">Days Active</div>
                                 </div>
                                 <div class="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <div class="text-lg font-bold text-gray-900 dark:text-white">24</div>
+                                    <div class="text-lg font-bold text-gray-900 dark:text-white"><?php echo $userStats['sessions']; ?></div>
                                     <div class="text-xs text-gray-600 dark:text-gray-400">Sessions</div>
                                 </div>
                                 <div class="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <div class="text-lg font-bold text-gray-900 dark:text-white">12</div>
+                                    <div class="text-lg font-bold text-gray-900 dark:text-white"><?php echo $userStats['reports']; ?></div>
                                     <div class="text-xs text-gray-600 dark:text-gray-400">Reports</div>
                                 </div>
                                 <div class="text-center p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <div class="text-lg font-bold text-gray-900 dark:text-white">98%</div>
+                                    <div class="text-lg font-bold text-gray-900 dark:text-white"><?php echo $userStats['uptime']; ?>%</div>
                                     <div class="text-xs text-gray-600 dark:text-gray-400">Uptime</div>
                                 </div>
                             </div>
@@ -362,10 +423,14 @@ const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-xs text-gray-600 dark:text-gray-400">Status</span>
-                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
-                                    <?php echo ($currentUser['status'] ?? 'inactive') === 'active' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'; ?>">
+                                <?php
+                                $userStatus = $currentUser['status'] ?? 'inactive';
+                                $isActive = ($userStatus === 'active');
+                                $statusClass = $isActive ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200';
+                                ?>
+                                <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $statusClass; ?>">
                                     <i class="fas fa-circle text-xs mr-1"></i>
-                                    <?php echo ucfirst($currentUser['status'] ?? 'inactive'); ?>
+                                    <?php echo ucfirst($userStatus); ?>
                                 </span>
                             </div>
                         </div>
@@ -498,10 +563,14 @@ const pageTranslations = <?php echo json_encode($jsTranslations); ?>;
                                     Account Status
                                 </label>
                                 <div class="w-full px-3 py-2 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-700 dark:text-gray-300">
-                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium
-                                        <?php echo ($currentUser['status'] ?? 'inactive') === 'active' ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'; ?>">
+                                    <?php
+                                    $userStatus = $currentUser['status'] ?? 'inactive';
+                                    $isActive = ($userStatus === 'active');
+                                    $statusClass = $isActive ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200' : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200';
+                                    ?>
+                                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium <?php echo $statusClass; ?>">
                                         <i class="fas fa-circle text-xs mr-1"></i>
-                                        <?php echo ucfirst($currentUser['status'] ?? 'inactive'); ?>
+                                        <?php echo ucfirst($userStatus); ?>
                                     </span>
                                 </div>
                             </div>

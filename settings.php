@@ -23,6 +23,7 @@ if ($_SESSION['role'] !== 'admin') {
 }
 
 require_once 'config/database.php';
+require_once 'config/env.php';
 require_once 'includes/language.php';
 
 // Get current user data
@@ -42,9 +43,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['action'])) {
         // Handle different settings actions here
         switch ($_POST['action']) {
-            case 'update_system_settings':
-                // Handle system settings update
-                $success = 'System settings updated successfully!';
+            case 'update_notification_settings':
+                // Handle notification settings update
+                $dailyReportEnabled = isset($_POST['daily_report_enabled']) ? 'true' : 'false';
+                $dailyReportTime = $_POST['daily_report_time'] ?? '08:00';
+                $emailRecipients = $_POST['email_recipients'] ?? '';
+
+                // Update .env file
+                $envFile = __DIR__ . '/.env';
+                $envContent = file_exists($envFile) ? file_get_contents($envFile) : '';
+
+                // Update or add settings
+                $settings = [
+                    'DAILY_REPORT_ENABLED' => $dailyReportEnabled,
+                    'DAILY_REPORT_TIME' => $dailyReportTime,
+                    'DAILY_REPORT_RECIPIENTS' => $emailRecipients
+                ];
+
+                foreach ($settings as $key => $value) {
+                    if (preg_match("/^$key=.*/m", $envContent)) {
+                        $envContent = preg_replace("/^$key=.*/m", "$key=$value", $envContent);
+                    } else {
+                        $envContent .= "\n$key=$value";
+                    }
+                }
+
+                file_put_contents($envFile, $envContent);
+
+                $success = 'Notification settings updated successfully!';
                 break;
             case 'update_preferences':
                 // Handle preferences update
@@ -158,15 +184,57 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
                                         <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
                                     </button>
                                 </div>
-                                <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                                    <div>
-                                        <span class="text-sm text-gray-900 dark:text-white" data-translate="daily_reports">Daily Reports</span>
-                                        <p class="text-xs text-gray-600 dark:text-gray-400">Send daily summary reports</p>
+                                <form method="POST" action="" id="notification-settings-form">
+                                    <input type="hidden" name="action" value="update_notification_settings">
+
+                                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg mb-3">
+                                        <div>
+                                            <span class="text-sm text-gray-900 dark:text-white" data-translate="daily_reports">Daily Reports</span>
+                                            <p class="text-xs text-gray-600 dark:text-gray-400">Send daily summary reports via email</p>
+                                        </div>
+                                        <button type="button" id="daily-report-toggle" class="relative inline-flex h-6 w-11 items-center rounded-full <?php echo $isEnabled ? 'bg-green-600' : 'bg-gray-200 dark:bg-gray-600'; ?> transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
+                                            <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform <?php echo $isEnabled ? 'translate-x-6' : 'translate-x-1'; ?>"></span>
+                                        </button>
+                                        <input type="hidden" name="daily_report_enabled" id="daily-report-enabled-input" value="<?php echo $isEnabled ? '1' : '0'; ?>">
                                     </div>
-                                    <button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full bg-green-600 transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2">
-                                        <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
-                                    </button>
-                                </div>
+                                    <div id="daily-report-settings" class="<?php echo $isEnabled ? '' : 'hidden'; ?> space-y-3 pl-3 border-l-2 border-green-500">
+                                        <!-- Report Time -->
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                <i class="fas fa-clock mr-1"></i>
+                                                Report Time (UTC+8)
+                                            </label>
+                                            <input type="time" name="daily_report_time" value="<?php echo htmlspecialchars($reportTime); ?>" class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Reports will be sent daily at this time (Philippine Time)</p>
+                                        </div>
+
+                                        <!-- Email Recipients -->
+                                        <div>
+                                            <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                <i class="fas fa-envelope mr-1"></i>
+                                                Email Recipients
+                                            </label>
+                                            <textarea name="email_recipients" rows="2" placeholder="admin@example.com, farmer@example.com" class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"><?php echo htmlspecialchars($recipients); ?></textarea>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Separate multiple emails with commas</p>
+                                        </div>
+
+                                        <!-- Info Note -->
+                                        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                            <p class="text-xs text-blue-700 dark:text-blue-300">
+                                                <i class="fas fa-info-circle mr-1"></i>
+                                                <strong>Note:</strong> Configure EmailJS credentials (Service ID, Template ID, Public Key) in the <code class="bg-blue-100 dark:bg-blue-900 px-1 rounded">.env</code> file before enabling daily reports.
+                                            </p>
+                                        </div>
+
+                                        <!-- Save Button -->
+                                        <div class="flex justify-end pt-2">
+                                            <button type="submit" class="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors">
+                                                <i class="fas fa-save mr-2"></i>
+                                                Save Settings
+                                            </button>
+                                        </div>
+                                    </div>
+                                </form>
                             </div>
                         </div>
 
@@ -340,9 +408,39 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
         showTab('notifications');
     });
 
-    // Toggle switch functionality
+    // Daily Report Toggle functionality
     document.addEventListener('DOMContentLoaded', function() {
-        const toggleButtons = document.querySelectorAll('button[class*="inline-flex h-6 w-11"]');
+        const dailyReportToggle = document.getElementById('daily-report-toggle');
+        const dailyReportSettings = document.getElementById('daily-report-settings');
+        const dailyReportInput = document.getElementById('daily-report-enabled-input');
+
+        if (dailyReportToggle) {
+            dailyReportToggle.addEventListener('click', function() {
+                const span = this.querySelector('span');
+                const isActive = span.classList.contains('translate-x-6');
+
+                if (isActive) {
+                    // Turn off
+                    span.classList.remove('translate-x-6');
+                    span.classList.add('translate-x-1');
+                    this.classList.remove('bg-green-600');
+                    this.classList.add('bg-gray-200', 'dark:bg-gray-600');
+                    dailyReportSettings.classList.add('hidden');
+                    dailyReportInput.value = '0';
+                } else {
+                    // Turn on
+                    span.classList.remove('translate-x-1');
+                    span.classList.add('translate-x-6');
+                    this.classList.remove('bg-gray-200', 'dark:bg-gray-600');
+                    this.classList.add('bg-green-600');
+                    dailyReportSettings.classList.remove('hidden');
+                    dailyReportInput.value = '1';
+                }
+            });
+        }
+
+        // Other toggle switches functionality
+        const toggleButtons = document.querySelectorAll('button[class*="inline-flex h-6 w-11"]:not(#daily-report-toggle)');
 
         toggleButtons.forEach(button => {
             button.addEventListener('click', function() {

@@ -233,8 +233,11 @@ function startUserSession($userData)
     $_SESSION['username'] = $userData['username'];
     $_SESSION['email'] = $userData['email'];
     $_SESSION['role'] = $userData['role'];
+    $_SESSION['status'] = $userData['status'] ?? 'active';
     $_SESSION['last_login'] = $userData['last_login'];
     $_SESSION['login_time'] = time();
+    
+    error_log("startUserSession - User ID: " . $userData['id'] . ", Status: " . ($_SESSION['status'] ?? 'NULL'));
 }
 
 /**
@@ -285,6 +288,16 @@ function getUsername()
 function getUserEmail()
 {
     return $_SESSION['email'] ?? null;
+}
+
+/**
+ * Get current user's status
+ * 
+ * @return string|null Status or null if not logged in
+ */
+function getUserStatus()
+{
+    return $_SESSION['status'] ?? null;
 }
 
 /**
@@ -460,19 +473,32 @@ function logoutUser()
  * Get user data by ID
  * 
  * @param int $userId User ID
+ * @param bool $updateSession Whether to update session data with fetched user info
  * @return array|false User data or false if not found
  */
-function getUserById($userId)
+function getUserById($userId, $updateSession = true)
 {
     try {
         $pdo = getDatabaseConnection();
         $stmt = $pdo->prepare("
-            SELECT id, username, email, role, status, last_login, created_at 
+            SELECT id, username, email, role, status, last_login, created_at, updated_at 
             FROM users 
             WHERE id = ?
         ");
         $stmt->execute([$userId]);
-        return $stmt->fetch();
+        $userData = $stmt->fetch();
+        
+        // Update session data if requested and user is found
+        if ($userData && $updateSession && isset($_SESSION['user_id']) && $_SESSION['user_id'] == $userId) {
+            $_SESSION['username'] = $userData['username'];
+            $_SESSION['email'] = $userData['email'];
+            $_SESSION['role'] = $userData['role'];
+            $_SESSION['status'] = $userData['status'];
+            
+            error_log("getUserById - Updated session for user ID: " . $userId . " with status: " . $userData['status']);
+        }
+        
+        return $userData;
     } catch (Exception $e) {
         error_log("Failed to get user by ID: " . $e->getMessage());
         return false;
