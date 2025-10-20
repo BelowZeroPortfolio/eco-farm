@@ -20,10 +20,9 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 if ($_SESSION['role'] !== 'admin') {
     header('Location: dashboard.php');
     exit();
-}
+}       
 
 require_once 'config/database.php';
-require_once 'config/env.php';
 require_once 'includes/language.php';
 
 // Get current user data

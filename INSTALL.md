@@ -19,11 +19,7 @@ Download: https://www.python.org/downloads/
 Download: https://getcomposer.org/download/
 Run installer
 ```
-### 4. GET tge best.pt
-```
-Download: https://huggingface.co/underdogquality/yolo11s-pest-detection/tree/main
-Run installer
-```
+
 ## Install Python Packages
 
 Open Command Prompt in project folder and run:
@@ -43,8 +39,8 @@ composer install
 1. Start XAMPP (Apache + MySQL)
 2. Open: http://localhost/phpmyadmin
 3. Create database: `farm_database`
-4. Import: `database/complete_setup.sql`
-5. Import: `database/sample_data.sql` (optional)
+4. Import: `database/schema.sql`
+5. Import: `database/sample_data.sql` (optional for sample data)
 
 
 
