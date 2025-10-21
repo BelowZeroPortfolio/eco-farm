@@ -17,6 +17,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 
 require_once 'config/database.php';
 require_once 'includes/language.php';
+require_once 'includes/arduino-api.php';
 
 $currentUser = [
     'id' => $_SESSION['user_id'],
@@ -132,6 +133,22 @@ function getSensorStatistics()
             'status_counts' => [],
             'reading_summary' => []
         ];
+    }
+}
+
+// Initialize Arduino bridge
+$arduino = new ArduinoBridge();
+
+// Get real-time Arduino data
+$arduinoData = null;
+$arduinoHealthy = false;
+if ($arduino->isHealthy()) {
+    $arduinoHealthy = true;
+    $arduinoData = $arduino->getAllSensorData();
+    
+    // Auto-sync Arduino data to database if available
+    if ($arduinoData) {
+        $arduino->syncToDatabase();
     }
 }
 
@@ -279,6 +296,153 @@ include 'includes/navigation.php';
             </div>
         <?php endforeach; ?>
     </div>
+
+    <!-- Arduino Live Sensors -->
+    <?php if ($arduinoHealthy && $arduinoData): ?>
+    <div class="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-gray-900/20 dark:to-gray-800/20 border border-gray-200 dark:border-gray-800 rounded-xl p-6 mb-4">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+                <div class="w-12 h-12 bg-gray-100 dark:bg-gray-900 rounded-lg flex items-center justify-center">
+                    <i class="fas fa-microchip text-gray-600 dark:text-gray-400 text-xl"></i>
+                </div>
+                <div>
+                    <h3 class="text-xl font-semibold text-gray-900 dark:text-white">Arduino Live Sensors</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400">DHT22 + Soil Moisture from pins 2 & A10</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 bg-green-500 rounded-full animate-pulse"></span>
+                <span class="text-sm text-green-600 dark:text-green-400 font-medium">Live</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Temperature -->
+            <?php if (isset($arduinoData['temperature'])): ?>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 bg-red-100 dark:bg-red-900 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-thermometer-half text-red-600 dark:text-red-400"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white">Temperature</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">DHT22 Sensor</p>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-red-600 dark:text-red-400 mb-1" id="arduino-temperature">
+                    <?php echo number_format($arduinoData['temperature']['value'], 1); ?>°C
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400" id="arduino-temp-time">
+                    <?php echo $arduinoData['temperature']['timestamp'] ?? 'Unknown'; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <!-- Humidity -->
+            <?php if (isset($arduinoData['humidity'])): ?>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-tint text-blue-600 dark:text-blue-400"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white">Humidity</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">DHT22 Sensor</p>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-blue-600 dark:text-blue-400 mb-1" id="arduino-humidity">
+                    <?php echo number_format($arduinoData['humidity']['value'], 1); ?>%
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400" id="arduino-hum-time">
+                    <?php echo $arduinoData['humidity']['timestamp'] ?? 'Unknown'; ?>
+                </div>
+                
+                <!-- Humidity Status -->
+                <div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-600">
+                    <div class="flex justify-between text-xs">
+                        <span class="text-gray-600 dark:text-gray-400">Status:</span>
+                        <span class="font-medium <?php 
+                            $value = $arduinoData['humidity']['value'];
+                            if ($value >= 60 && $value <= 80) {
+                                echo 'text-green-600 dark:text-green-400';
+                                $status = 'Optimal';
+                            } elseif ($value >= 50 && $value < 90) {
+                                echo 'text-yellow-600 dark:text-yellow-400';
+                                $status = 'Acceptable';
+                            } else {
+                                echo 'text-red-600 dark:text-red-400';
+                                $status = 'Needs Attention';
+                            }
+                            echo '" id="arduino-hum-status">' . $status;
+                        ?></span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <!-- Soil Moisture -->
+            <?php if (isset($arduinoData['soil_moisture'])): ?>
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-4 border border-gray-200 dark:border-gray-700">
+                <div class="flex items-center gap-3 mb-3">
+                    <div class="w-10 h-10 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center">
+                        <i class="fas fa-seedling text-green-600 dark:text-green-400"></i>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white">Soil Moisture</h4>
+                        <p class="text-xs text-gray-500 dark:text-gray-400">Analog A10</p>
+                    </div>
+                </div>
+                <div class="text-2xl font-bold text-green-600 dark:text-green-400 mb-1" id="arduino-soil">
+                    <?php echo number_format($arduinoData['soil_moisture']['value'], 1); ?>%
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400" id="arduino-soil-time">
+                    <?php echo $arduinoData['soil_moisture']['timestamp'] ?? 'Unknown'; ?>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <div class="mt-4 flex items-center justify-between">
+            <button onclick="refreshArduinoData()" class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-900 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">
+                <i class="fas fa-sync-alt mr-2"></i>
+                Refresh All
+            </button>
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+                Live updates: 5s
+            </div>
+        </div>
+    </div>
+    <?php elseif (!$arduinoHealthy): ?>
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 mb-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
+                <i class="fas fa-exclamation-triangle text-yellow-600 dark:text-yellow-400"></i>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Arduino Bridge Offline</h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400">
+                    Start the bridge service to see live humidity data. 
+                    <a href="#" onclick="showArduinoInstructions()" class="text-yellow-600 dark:text-yellow-400 hover:underline">Setup instructions</a>
+                </p>
+            </div>
+        </div>
+    </div>
+    <?php elseif (!$arduinoHealthy): ?>
+    <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-xl p-4 mb-4">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-yellow-100 dark:bg-yellow-900 rounded-lg flex items-center justify-center">
+                <i class="fas fa-exclamation-triangle text-yellow-600 dark:text-yellow-400"></i>
+            </div>
+            <div>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">Arduino Bridge Offline</h3>
+                <p class="text-sm text-gray-600 dark:text-gray-400">
+                    Arduino bridge service is not running. 
+                    <a href="#" onclick="showArduinoInstructions()" class="text-yellow-600 dark:text-yellow-400 hover:underline">Click here for setup instructions</a>
+                </p>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <!-- Main Content Grid -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -912,6 +1076,138 @@ include 'includes/navigation.php';
             }
         });
     });
+
+    // Arduino data refresh functionality
+    function refreshArduinoData() {
+        const refreshBtn = document.querySelector('button[onclick="refreshArduinoData()"]');
+        const originalText = refreshBtn.innerHTML;
+        
+        // Show loading state
+        refreshBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Refreshing...';
+        refreshBtn.disabled = true;
+        
+        // Reload the page to get fresh Arduino data
+        setTimeout(() => {
+            window.location.reload();
+        }, 1000);
+    }
+
+    // Show Arduino setup instructions
+    function showArduinoInstructions() {
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50';
+        modal.innerHTML = `
+            <div class="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-2xl mx-4 max-h-96 overflow-y-auto">
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Arduino Bridge Setup</h3>
+                    <button onclick="this.closest('.fixed').remove()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <div class="space-y-4 text-sm text-gray-600 dark:text-gray-300">
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white mb-2">1. Install Python Dependencies</h4>
+                        <code class="bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded text-xs">pip install flask pyserial</code>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white mb-2">2. Connect Arduino</h4>
+                        <p>Connect your Arduino to COM3 (or update the port in arduino_bridge.py)</p>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white mb-2">3. Start Bridge Service</h4>
+                        <p>Double-click <code class="bg-gray-100 dark:bg-gray-700 px-1 rounded">start_arduino_bridge.bat</code></p>
+                    </div>
+                    <div>
+                        <h4 class="font-medium text-gray-900 dark:text-white mb-2">4. Arduino Code</h4>
+                        <p>Your existing code is perfect! Just sends analog values (0-1023)</p>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    }
+
+    // Real-time Arduino sensors updates
+    function updateSensorsArduinoData() {
+        fetch('arduino_sync.php?action=get_all')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.data) {
+                    const sensors = data.data;
+                    
+                    // Update temperature
+                    if (sensors.temperature && sensors.temperature.value !== null) {
+                        const tempElement = document.getElementById('arduino-temperature');
+                        const tempTimeElement = document.getElementById('arduino-temp-time');
+                        
+                        if (tempElement) {
+                            tempElement.textContent = parseFloat(sensors.temperature.value).toFixed(1) + '°C';
+                        }
+                        if (tempTimeElement) {
+                            tempTimeElement.textContent = sensors.temperature.timestamp || 'Just now';
+                        }
+                    }
+                    
+                    // Update humidity
+                    if (sensors.humidity && sensors.humidity.value !== null) {
+                        const humElement = document.getElementById('arduino-humidity');
+                        const humTimeElement = document.getElementById('arduino-hum-time');
+                        const humStatusElement = document.getElementById('arduino-hum-status');
+                        
+                        if (humElement) {
+                            humElement.textContent = parseFloat(sensors.humidity.value).toFixed(1) + '%';
+                        }
+                        if (humTimeElement) {
+                            humTimeElement.textContent = sensors.humidity.timestamp || 'Just now';
+                        }
+                        
+                        // Update humidity status
+                        if (humStatusElement) {
+                            const value = parseFloat(sensors.humidity.value);
+                            let status = '';
+                            let statusClass = '';
+                            
+                            if (value >= 60 && value <= 80) {
+                                status = 'Optimal';
+                                statusClass = 'font-medium text-green-600 dark:text-green-400';
+                            } else if (value >= 50 && value < 90) {
+                                status = 'Acceptable';
+                                statusClass = 'font-medium text-yellow-600 dark:text-yellow-400';
+                            } else {
+                                status = 'Needs Attention';
+                                statusClass = 'font-medium text-red-600 dark:text-red-400';
+                            }
+                            
+                            humStatusElement.textContent = status;
+                            humStatusElement.className = statusClass;
+                        }
+                    }
+                    
+                    // Update soil moisture
+                    if (sensors.soil_moisture && sensors.soil_moisture.value !== null) {
+                        const soilElement = document.getElementById('arduino-soil');
+                        const soilTimeElement = document.getElementById('arduino-soil-time');
+                        
+                        if (soilElement) {
+                            soilElement.textContent = parseFloat(sensors.soil_moisture.value).toFixed(1) + '%';
+                        }
+                        if (soilTimeElement) {
+                            soilTimeElement.textContent = sensors.soil_moisture.timestamp || 'Just now';
+                        }
+                    }
+                }
+            })
+            .catch(error => console.log('Arduino sensors update failed:', error));
+    }
+
+    // Start real-time updates for sensors page
+    <?php if ($arduinoHealthy): ?>
+    // Update every 5 seconds for real-time feel
+    setInterval(updateSensorsArduinoData, 5000);
+    
+    // Initial update after 2 seconds
+    setTimeout(updateSensorsArduinoData, 2000);
+    <?php endif; ?>
 </script>
 
 <?php

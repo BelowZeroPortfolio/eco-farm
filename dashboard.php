@@ -11,6 +11,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 require_once 'config/database.php';
 require_once 'includes/language.php';
 require_once 'includes/weather-api.php';
+require_once 'includes/arduino-api.php';
 
 $currentUser = [
     'id' => $_SESSION['user_id'],
@@ -141,6 +142,26 @@ function getDailyStatistics()
     }
 }
 
+// Initialize Arduino bridge for real-time data
+$arduino = new ArduinoBridge();
+$arduinoHealthy = false;
+$arduinoData = null;
+
+if ($arduino->isHealthy()) {
+    $arduinoHealthy = true;
+    $arduinoData = $arduino->getAllSensorData();
+    
+    // Auto-sync all sensor data to database
+    if ($arduinoData) {
+        foreach ($arduinoData as $sensorType => $data) {
+            if (isset($data['value']) && $data['value'] !== null) {
+                $unit = ($sensorType === 'temperature') ? '°C' : '%';
+                $arduino->storeSensorReading($sensorType, $data['value'], $unit);
+            }
+        }
+    }
+}
+
 // Get data for dashboard
 $sensorReadings = getCurrentSensorReadings();
 $recentAlerts = getRecentPestAlerts();
@@ -177,34 +198,64 @@ include 'includes/navigation.php';
 
     <!-- Stats Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
-        <!-- Total Sensors -->
-        <div class="bg-green-600 text-white rounded-xl p-3">
+        <!-- Arduino Temperature -->
+        <div class="bg-red-600 text-white rounded-xl p-3" id="temperature-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-white/80 text-xs font-medium" data-translate="temperature">Temperature</h3>
+                <h3 class="text-white/80 text-xs font-medium">Arduino Temp</h3>
                 <i class="fas fa-thermometer-half text-xs"></i>
             </div>
-            <div class="text-xl font-bold">30</div>
-            <div class="text-white/80 text-xs">Online</div>
+            <?php if ($arduinoHealthy && $arduinoData && isset($arduinoData['temperature'])): ?>
+                <div class="text-xl font-bold" id="temperature-value">
+                    <?php echo number_format($arduinoData['temperature']['value'], 1); ?>°C
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 bg-white/80 rounded-full animate-pulse"></span>
+                    <span class="text-white/80 text-xs">Live</span>
+                </div>
+            <?php else: ?>
+                <div class="text-xl font-bold text-white/60">--</div>
+                <div class="text-white/60 text-xs">Offline</div>
+            <?php endif; ?>
         </div>
 
-        <!-- Humidity -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+        <!-- Arduino Humidity -->
+        <div class="bg-blue-600 text-white rounded-xl p-3" id="humidity-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium">Humidity</h3>
-                <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-xs"></i>
+                <h3 class="text-white/80 text-xs font-medium">Arduino Humidity</h3>
+                <i class="fas fa-tint text-xs"></i>
             </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">30</div>
-            <div class="text-green-600 text-xs" data-translate="online">Online</div>
+            <?php if ($arduinoHealthy && $arduinoData && isset($arduinoData['humidity'])): ?>
+                <div class="text-xl font-bold" id="humidity-value">
+                    <?php echo number_format($arduinoData['humidity']['value'], 1); ?>%
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 bg-white/80 rounded-full animate-pulse"></span>
+                    <span class="text-white/80 text-xs">Live</span>
+                </div>
+            <?php else: ?>
+                <div class="text-xl font-bold text-white/60">--</div>
+                <div class="text-white/60 text-xs">Offline</div>
+            <?php endif; ?>
         </div>
 
-        <!-- Soil Moisture -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
+        <!-- Arduino Soil Moisture -->
+        <div class="bg-green-600 text-white rounded-xl p-3" id="soil-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium" data-translate="Soil Moisture">Soil Moisture</h3>
-                <i class="fas fa-bug text-yellow-600 dark:text-yellow-400 text-xs"></i>
+                <h3 class="text-white/80 text-xs font-medium">Arduino Soil</h3>
+                <i class="fas fa-seedling text-xs"></i>
             </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">30</div>
-            <div class="text-green-600 text-xs" data-translate="online">Online</div>
+            <?php if ($arduinoHealthy && $arduinoData && isset($arduinoData['soil_moisture'])): ?>
+                <div class="text-xl font-bold" id="soil-value">
+                    <?php echo number_format($arduinoData['soil_moisture']['value'], 1); ?>%
+                </div>
+                <div class="flex items-center gap-1">
+                    <span class="w-2 h-2 bg-white/80 rounded-full animate-pulse"></span>
+                    <span class="text-white/80 text-xs">Live</span>
+                </div>
+            <?php else: ?>
+                <div class="text-xl font-bold text-white/60">--</div>
+                <div class="text-white/60 text-xs">Offline</div>
+            <?php endif; ?>
         </div>
 
         <!-- Reports -->
@@ -425,6 +476,74 @@ include 'includes/navigation.php';
 
         <!-- Right Column -->
         <div class="space-y-4">
+            <!-- Arduino Live Sensors -->
+            <?php if ($arduinoHealthy && $arduinoData): ?>
+            <div class="bg-gradient-to-br from-gray-800 to-gray-900 text-white rounded-xl p-4" id="arduino-sensors-widget">
+                <div class="flex items-center justify-between mb-3">
+                    <h3 class="text-white/80 text-xs font-medium">Arduino Live Sensors</h3>
+                    <div class="flex items-center gap-1">
+                        <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
+                        <span class="text-white/80 text-xs">Live</span>
+                    </div>
+                </div>
+                
+                <div class="space-y-3">
+                    <?php if (isset($arduinoData['temperature'])): ?>
+                    <div class="flex items-center justify-between p-2 bg-white/10 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-thermometer-half text-red-400 text-sm"></i>
+                            <span class="text-sm">Temperature</span>
+                        </div>
+                        <span class="font-bold" id="widget-temperature">
+                            <?php echo number_format($arduinoData['temperature']['value'], 1); ?>°C
+                        </span>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if (isset($arduinoData['humidity'])): ?>
+                    <div class="flex items-center justify-between p-2 bg-white/10 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-tint text-blue-400 text-sm"></i>
+                            <span class="text-sm">Humidity</span>
+                        </div>
+                        <span class="font-bold" id="widget-humidity">
+                            <?php echo number_format($arduinoData['humidity']['value'], 1); ?>%
+                        </span>
+                    </div>
+                    <?php endif; ?>
+                    
+                    <?php if (isset($arduinoData['soil_moisture'])): ?>
+                    <div class="flex items-center justify-between p-2 bg-white/10 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <i class="fas fa-seedling text-green-400 text-sm"></i>
+                            <span class="text-sm">Soil Moisture</span>
+                        </div>
+                        <span class="font-bold" id="widget-soil">
+                            <?php echo number_format($arduinoData['soil_moisture']['value'], 1); ?>%
+                        </span>
+                    </div>
+                    <?php endif; ?>
+                </div>
+                
+                <div class="text-center mt-3 pt-3 border-t border-white/20">
+                    <div class="text-white/60 text-xs">
+                        Last update: <span id="widget-timestamp">
+                            <?php 
+                            $lastUpdate = '';
+                            foreach ($arduinoData as $data) {
+                                if (isset($data['timestamp'])) {
+                                    $lastUpdate = $data['timestamp'];
+                                    break;
+                                }
+                            }
+                            echo $lastUpdate ?: 'Unknown';
+                            ?>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+
             <!-- Current Conditions -->
             <div class="bg-green-600 text-white rounded-xl p-4">
                 <h3 class="text-white/80 text-xs font-medium mb-2" data-translate="weekly_average_conditions">Weekly Average Conditions</h3>
@@ -651,6 +770,111 @@ include 'includes/navigation.php';
 
 
 </div>
+<!-- Real-time Arduino Data JavaScript -->
+<script>
+// Real-time Arduino sensor updates
+function updateArduinoSensors() {
+    fetch('arduino_sync.php?action=get_all')
+        .then(response => response.json())
+        .then(data => {
+            if (data.success && data.data) {
+                const sensors = data.data;
+                
+                // Update temperature card
+                if (sensors.temperature && sensors.temperature.value !== null) {
+                    const tempValue = document.getElementById('temperature-value');
+                    if (tempValue) {
+                        tempValue.textContent = parseFloat(sensors.temperature.value).toFixed(1) + '°C';
+                    }
+                    
+                    // Update widget
+                    const widgetTemp = document.getElementById('widget-temperature');
+                    if (widgetTemp) {
+                        widgetTemp.textContent = parseFloat(sensors.temperature.value).toFixed(1) + '°C';
+                    }
+                    
+                    // Update chart if temperature is selected
+                    const sensorSelect = document.getElementById('sensor-type-select');
+                    if (sensorSelect && sensorSelect.value === 'temperature' && typeof sensorData !== 'undefined') {
+                        sensorData.temperature.data.push(parseFloat(sensors.temperature.value));
+                        sensorData.temperature.data.shift();
+                        updateChart('temperature');
+                    }
+                }
+                
+                // Update humidity card
+                if (sensors.humidity && sensors.humidity.value !== null) {
+                    const humidityValue = document.getElementById('humidity-value');
+                    if (humidityValue) {
+                        humidityValue.textContent = parseFloat(sensors.humidity.value).toFixed(1) + '%';
+                    }
+                    
+                    // Update widget
+                    const widgetHumidity = document.getElementById('widget-humidity');
+                    if (widgetHumidity) {
+                        widgetHumidity.textContent = parseFloat(sensors.humidity.value).toFixed(1) + '%';
+                    }
+                    
+                    // Update chart if humidity is selected
+                    const sensorSelect = document.getElementById('sensor-type-select');
+                    if (sensorSelect && sensorSelect.value === 'humidity' && typeof sensorData !== 'undefined') {
+                        sensorData.humidity.data.push(parseFloat(sensors.humidity.value));
+                        sensorData.humidity.data.shift();
+                        updateChart('humidity');
+                    }
+                }
+                
+                // Update soil moisture card
+                if (sensors.soil_moisture && sensors.soil_moisture.value !== null) {
+                    const soilValue = document.getElementById('soil-value');
+                    if (soilValue) {
+                        soilValue.textContent = parseFloat(sensors.soil_moisture.value).toFixed(1) + '%';
+                    }
+                    
+                    // Update widget
+                    const widgetSoil = document.getElementById('widget-soil');
+                    if (widgetSoil) {
+                        widgetSoil.textContent = parseFloat(sensors.soil_moisture.value).toFixed(1) + '%';
+                    }
+                    
+                    // Update chart if soil moisture is selected
+                    const sensorSelect = document.getElementById('sensor-type-select');
+                    if (sensorSelect && sensorSelect.value === 'soil_moisture' && typeof sensorData !== 'undefined') {
+                        sensorData.soil_moisture.data.push(parseFloat(sensors.soil_moisture.value));
+                        sensorData.soil_moisture.data.shift();
+                        updateChart('soil_moisture');
+                    }
+                }
+                
+                // Update widget timestamp
+                const widgetTimestamp = document.getElementById('widget-timestamp');
+                if (widgetTimestamp) {
+                    let latestTimestamp = '';
+                    for (const sensorType in sensors) {
+                        if (sensors[sensorType].timestamp) {
+                            latestTimestamp = sensors[sensorType].timestamp;
+                            break;
+                        }
+                    }
+                    widgetTimestamp.textContent = latestTimestamp || 'Just now';
+                }
+            }
+        })
+        .catch(error => {
+            console.log('Arduino sensors update failed:', error);
+        });
+}
+
+// Start real-time updates
+<?php if ($arduinoHealthy): ?>
+// Update every 5 seconds for real-time feel
+setInterval(updateArduinoSensors, 5000);
+
+// Initial update after 2 seconds
+setTimeout(updateArduinoSensors, 2000);
+<?php endif; ?>
+</script>
+
 <?php
 // Include shared footer
 include 'includes/footer.php';
