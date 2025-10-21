@@ -25,15 +25,20 @@ define('NOTIFICATION_TYPES', [
 function getPestAlertNotifications($limit = null)
 {
     try {
+        // Get the correct path to database config
+        $configPath = __DIR__ . '/../config/database.php';
+        
         // Check if database config exists
-        if (!file_exists('config/database.php')) {
+        if (!file_exists($configPath)) {
+            error_log("Database config not found at: " . $configPath);
             return [];
         }
         
-        require_once 'config/database.php';
+        require_once $configPath;
         
         // Check if function exists
         if (!function_exists('getDatabaseConnection')) {
+            error_log("getDatabaseConnection function not found");
             return [];
         }
         
@@ -41,6 +46,7 @@ function getPestAlertNotifications($limit = null)
         
         // Check if connection is valid
         if (!$pdo) {
+            error_log("Database connection is null");
             return [];
         }
 
@@ -66,10 +72,13 @@ function getPestAlertNotifications($limit = null)
         $stmt = $pdo->query($query);
         
         if (!$stmt) {
+            error_log("Failed to execute pest_alerts query");
             return [];
         }
         
         $pestAlerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        error_log("Found " . count($pestAlerts) . " pest alerts in database");
 
         // Convert pest alerts to notification format
         $notifications = [];
