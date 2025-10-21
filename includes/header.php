@@ -33,6 +33,11 @@ $additionalJS = $additionalJS ?? [];
     <meta name="author" content="Farm Monitor Team">
     <title><?php echo htmlspecialchars($pageTitle); ?></title>
     
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="includes/sagay.png">
+    <link rel="shortcut icon" type="image/png" href="includes/sagay.png">
+    <link rel="apple-touch-icon" href="includes/sagay.png">
+    
     <!-- Preconnect to external domains for performance -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -236,6 +241,28 @@ $additionalJS = $additionalJS ?? [];
         @keyframes shimmer {
             0% { background-position: -200% 0; }
             100% { background-position: 200% 0; }
+        }
+        
+        /* Line clamp utility for truncating text */
+        .line-clamp-1 {
+            display: -webkit-box;
+            -webkit-line-clamp: 1;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        
+        .line-clamp-3 {
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }
         
         /* Professional Animations */

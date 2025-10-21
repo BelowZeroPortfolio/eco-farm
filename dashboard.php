@@ -10,6 +10,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 
 require_once 'config/database.php';
 require_once 'includes/language.php';
+require_once 'includes/weather-api.php';
 
 $currentUser = [
     'id' => $_SESSION['user_id'],
@@ -17,6 +18,9 @@ $currentUser = [
     'email' => $_SESSION['email'] ?? '',
     'role' => $_SESSION['role'] ?? 'student'
 ];
+
+// Get weather data
+$weatherData = getWeatherData();
 
 // Helper functions are now centralized in config/database.php
 // getTimeAgo() is defined in includes/notifications.php
@@ -90,6 +94,15 @@ function getDailyStatistics()
         ");
         $alertStats = $stmt->fetch(PDO::FETCH_ASSOC);
 
+        // Calculate weekly reports (based on days with pest alerts this week)
+        $stmt = $pdo->query("
+            SELECT COUNT(DISTINCT DATE(detected_at)) as reports_generated
+            FROM pest_alerts
+            WHERE detected_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        ");
+        $reportStats = $stmt->fetch(PDO::FETCH_ASSOC);
+        $weeklyReports = max(1, $reportStats['reports_generated']); // At least 1 report
+
         return [
             'daily_averages' => [
                 ['sensor_type' => 'temperature', 'daily_avg' => 24.5, 'unit' => '°C'],
@@ -101,7 +114,8 @@ function getDailyStatistics()
                 'total_sensors' => 9,
                 'online_sensors' => 9,
                 'offline_sensors' => 0
-            ]
+            ],
+            'weekly_reports' => $weeklyReports
         ];
     } catch (Exception $e) {
         error_log("Error fetching daily statistics: " . $e->getMessage());
@@ -121,7 +135,8 @@ function getDailyStatistics()
                 'total_sensors' => 9,
                 'online_sensors' => 9,
                 'offline_sensors' => 0
-            ]
+            ],
+            'weekly_reports' => 7 // Default to 7 (one per day)
         ];
     }
 }
@@ -195,11 +210,11 @@ include 'includes/navigation.php';
         <!-- Reports -->
         <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-3">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium" data-translate="reports">Reports</h3>
+                <h3 class="text-gray-600 dark:text-gray-400 text-xs font-medium" data-translate="weekly_reports_generated">Weekly Reports</h3>
                 <i class="fas fa-chart-bar text-blue-600 dark:text-blue-400 text-xs"></i>
             </div>
-            <div class="text-xl font-bold text-gray-900 dark:text-white">12</div>
-            <div class="text-gray-500 text-xs">Generated</div>
+            <div class="text-xl font-bold text-gray-900 dark:text-white"><?php echo $dailyStats['weekly_reports']; ?></div>
+            <div class="text-gray-500 text-xs">This week</div>
         </div>
 
 
@@ -412,7 +427,7 @@ include 'includes/navigation.php';
         <div class="space-y-4">
             <!-- Current Conditions -->
             <div class="bg-green-600 text-white rounded-xl p-4">
-                <h3 class="text-white/80 text-xs font-medium mb-2" data-translate="live_conditions">Live Conditions</h3>
+                <h3 class="text-white/80 text-xs font-medium mb-2" data-translate="weekly_average_conditions">Weekly Average Conditions</h3>
                 <div class="text-center">
                     <div class="text-2xl font-bold mb-1"><?php echo $sensorReadings[0]['avg_value']; ?>°C</div>
                     <div class="text-white/80 text-xs mb-2" data-translate="temperature">Temperature</div>
@@ -543,25 +558,65 @@ include 'includes/navigation.php';
             </div>
         </div>
 
-        <!-- Weather Conditions -->
-        <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white mb-3">Weather</h3>
+        <!-- Weather Conditions - Live Data -->
+        <div class="bg-gradient-to-br from-green-500 to-green-600 text-white rounded-xl p-4 shadow-lg">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="text-sm font-semibold">Weather</h3>
+                <span class="text-xs opacity-75">
+                    <i class="fas fa-map-marker-alt mr-1"></i>
+                    Sagay, N.O.
+                </span>
+            </div>
             <div class="text-center mb-3">
-                <div class="w-12 h-12 bg-yellow-100 dark:bg-yellow-900 rounded-full flex items-center justify-center mx-auto mb-2">
-                    <i class="fas fa-sun text-yellow-600 dark:text-yellow-400"></i>
+                <div class="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-full flex items-center justify-center mx-auto mb-2">
+                    <i class="fas <?php echo $weatherData['icon']; ?> text-white text-2xl"></i>
                 </div>
-                <p class="text-lg font-bold text-gray-900 dark:text-white">26°C</p>
-                <p class="text-xs text-gray-600 dark:text-gray-400">Sunny</p>
+                <p class="text-3xl font-bold mb-1"><?php echo $weatherData['temperature']; ?>°C</p>
+                <p class="text-sm opacity-90"><?php echo $weatherData['description']; ?></p>
+                <p class="text-xs opacity-75 mt-1">Feels like <?php echo $weatherData['feels_like']; ?>°C</p>
             </div>
             <div class="grid grid-cols-2 gap-2 text-xs">
-                <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                    <p class="text-gray-600 dark:text-gray-400">Change of Raining</p>
-                    <p class="font-bold text-gray-900 dark:text-white">40%</p>
+                <div class="text-center p-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                    <div class="flex items-center justify-center mb-1">
+                        <i class="fas fa-cloud-rain mr-1"></i>
+                        <span class="opacity-75">Rain</span>
+                    </div>
+                    <p class="font-bold"><?php echo $weatherData['rain_chance']; ?>%</p>
                 </div>
-                <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                    <p class="text-gray-600 dark:text-gray-400">Wind</p>
-                    <p class="font-bold text-gray-900 dark:text-white">12 km/h</p>
+                <div class="text-center p-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                    <div class="flex items-center justify-center mb-1">
+                        <i class="fas fa-wind mr-1"></i>
+                        <span class="opacity-75">Wind</span>
+                    </div>
+                    <p class="font-bold"><?php echo $weatherData['wind_speed']; ?> km/h</p>
                 </div>
+                <div class="text-center p-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                    <div class="flex items-center justify-center mb-1">
+                        <i class="fas fa-tint mr-1"></i>
+                        <span class="opacity-75">Humidity</span>
+                    </div>
+                    <p class="font-bold"><?php echo $weatherData['humidity']; ?>%</p>
+                </div>
+                <div class="text-center p-2 bg-white/10 backdrop-blur-sm rounded-lg">
+                    <div class="flex items-center justify-center mb-1">
+                        <i class="fas fa-eye mr-1"></i>
+                        <span class="opacity-75">Visibility</span>
+                    </div>
+                    <p class="font-bold"><?php echo $weatherData['visibility']; ?> km</p>
+                </div>
+            </div>
+            <div class="mt-3 pt-3 border-t border-white/20 flex items-center justify-between text-xs opacity-75">
+                <span>
+                    <i class="fas fa-sunrise mr-1"></i>
+                    <?php echo $weatherData['sunrise']; ?>
+                </span>
+                <span>
+                    <i class="fas fa-sunset mr-1"></i>
+                    <?php echo $weatherData['sunset']; ?>
+                </span>
+            </div>
+            <div class="mt-2 text-center text-xs opacity-60">
+                Updated: <?php echo $weatherData['last_updated']; ?>
             </div>
         </div>
 

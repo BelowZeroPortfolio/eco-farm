@@ -138,24 +138,79 @@ include 'includes/navigation.php';
 <div class="p-4 max-w-7xl mx-auto">
 
     <!-- Page Header -->
-    <div class="mb-6 flex items-center justify-between">
-        <div>
-            <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-                <i class="fas fa-bell text-blue-600 mr-3"></i>
-                Notifications
-            </h1>
-            <p class="text-gray-600 dark:text-gray-400">
-                View and manage all system notifications and pest alerts
-            </p>
+    <div class="mb-6">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2 flex items-center">
+                    <div class="w-12 h-12 bg-blue-100 dark:bg-blue-900 rounded-xl flex items-center justify-center mr-3">
+                        <i class="fas fa-bell text-blue-600 dark:text-blue-400 text-xl"></i>
+                    </div>
+                    Notifications
+                </h1>
+                <p class="text-gray-600 dark:text-gray-400 ml-15">
+                    Stay updated with system alerts and pest detections
+                </p>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="refreshNotifications()" class="px-4 py-2 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg transition-all duration-200 flex items-center shadow-sm hover:shadow">
+                    <i class="fas fa-sync-alt mr-2"></i>
+                    <span class="hidden sm:inline">Refresh</span>
+                </button>
+                <?php if ($notificationCounts['unread'] > 0): ?>
+                <button onclick="markAllAsRead()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center shadow-sm hover:shadow">
+                    <i class="fas fa-check-double mr-2"></i>
+                    <span class="hidden sm:inline">Mark All Read</span>
+                </button>
+                <?php endif; ?>
+            </div>
         </div>
-        <div class="flex items-center gap-3">
-            <button onclick="refreshNotifications()" class="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded-lg transition-colors">
-                <i class="fas fa-sync-alt mr-2"></i>Refresh
-            </button>
-            <button onclick="markAllAsRead()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-colors">
-                <i class="fas fa-check-double mr-2"></i>Mark All Read
-            </button>
+        
+        <!-- Quick Stats -->
+        <?php if ($notificationCounts['unread'] > 0 || $notificationCounts['critical'] > 0): ?>
+        <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <?php if ($notificationCounts['unread'] > 0): ?>
+            <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-envelope text-blue-600 dark:text-blue-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-blue-900 dark:text-blue-100"><?php echo $notificationCounts['unread']; ?> Unread</p>
+                        <p class="text-xs text-blue-700 dark:text-blue-300">Requires attention</p>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <?php if ($notificationCounts['critical'] > 0): ?>
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-red-900 dark:text-red-100"><?php echo $notificationCounts['critical']; ?> Critical</p>
+                        <p class="text-xs text-red-700 dark:text-red-300">Immediate action needed</p>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+            
+            <?php if ($notificationCounts['high'] > 0): ?>
+            <div class="bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800 rounded-lg p-3">
+                <div class="flex items-center">
+                    <div class="flex-shrink-0">
+                        <i class="fas fa-exclamation-circle text-orange-600 dark:text-orange-400"></i>
+                    </div>
+                    <div class="ml-3">
+                        <p class="text-sm font-medium text-orange-900 dark:text-orange-100"><?php echo $notificationCounts['high']; ?> High Priority</p>
+                        <p class="text-xs text-orange-700 dark:text-orange-300">Review soon</p>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
+        <?php endif; ?>
     </div>
 
     <!-- Filter Tabs -->

@@ -26,13 +26,20 @@ $currentUser = [
 // AJAX REQUEST HANDLER
 // ============================================================================
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+// Handle both GET and POST requests for different actions
+$isAjaxRequest = ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) || 
+                 ($_SERVER['REQUEST_METHOD'] === 'GET' && isset($_GET['action']));
+
+if ($isAjaxRequest) {
     header('Content-Type: application/json');
 
     try {
         $pdo = getDatabaseConnection();
+        
+        // Get action from either POST or GET
+        $action = $_POST['action'] ?? $_GET['action'] ?? '';
 
-        switch ($_POST['action']) {
+        switch ($action) {
             case 'detect_webcam':
                 // Real-time webcam pest detection endpoint using Flask service
                 if (!isset($_FILES['image'])) {
@@ -795,6 +802,13 @@ include 'includes/header.php';
      * Start pest detection process
      */
     async function startDetection() {
+        // Check if user is student
+        const userRole = '<?php echo $currentUser['role']; ?>';
+        if (userRole === 'student') {
+            showToast('Students do not have permission to start detection', 'error');
+            return;
+        }
+        
         if (isDetecting) return;
 
         if (!selectedDeviceId) {
@@ -1094,15 +1108,7 @@ include 'includes/header.php';
      */
     async function loadRecentDetections() {
         try {
-            const response = await fetch('pest_detection.php?action=get_recent_detections&limit=100', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'action=get_recent_detections'
-            });
-
-            const data = await response.json();
+            const data = await apiCall('get_recent_detections', { limit: 100 }, 'GET');
 
             if (data.success) {
                 allDetections = data.detections;
@@ -1111,6 +1117,7 @@ include 'includes/header.php';
             }
         } catch (error) {
             console.error('Error loading recent detections:', error);
+            showToast('Failed to load recent detections', 'error');
         }
     }
 
@@ -1219,15 +1226,7 @@ include 'includes/header.php';
      */
     async function loadDetectionStats() {
         try {
-            const response = await fetch('pest_detection.php?action=get_detection_stats', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded'
-                },
-                body: 'action=get_detection_stats'
-            });
-
-            const data = await response.json();
+            const data = await apiCall('get_detection_stats', {}, 'GET');
 
             if (data.success) {
                 document.getElementById('total-detections').textContent = data.stats.total_detections || 0;
@@ -1292,8 +1291,7 @@ include 'includes/header.php';
      */
     async function loadUnreadNotifications() {
         try {
-            const response = await fetch('pest_detection.php?action=get_recent_detections&limit=20');
-            const data = await response.json();
+            const data = await apiCall('get_recent_detections', { limit: 20 }, 'GET');
 
             if (data.success) {
                 const unreadDetections = data.detections.filter(d => !d.is_read);
@@ -1471,9 +1469,23 @@ include 'includes/header.php';
      * View alert details in a modal
      */
     async function viewAlertDetails(alertId) {
+        // Show loading state
+        const loadingModal = `
+            <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" id="loading-modal">
+                <div class="bg-white dark:bg-gray-800 rounded-xl p-8 text-center">
+                    <i class="fas fa-spinner fa-spin text-4xl text-blue-600 mb-4"></i>
+                    <p class="text-gray-700 dark:text-gray-300">Loading alert details...</p>
+                </div>
+            </div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', loadingModal);
+        
         try {
-            const response = await fetch(`pest_detection.php?action=get_alert_details&alert_id=${alertId}`);
-            const data = await response.json();
+            // Use optimized API call helper
+            const data = await apiCall('get_alert_details', { alert_id: alertId }, 'GET');
+            
+            // Remove loading modal
+            document.getElementById('loading-modal')?.remove();
 
             if (data.success) {
                 const alert = data.alert;
@@ -1549,14 +1561,71 @@ include 'includes/header.php';
                 showToast(data.message || 'Failed to load alert details', 'error');
             }
         } catch (error) {
+            // Remove loading modal on error
+            document.getElementById('loading-modal')?.remove();
+            
             console.error('Error loading alert details:', error);
-            showToast('Error loading alert details', 'error');
+            showToast(error.message || 'Failed to load alert details', 'error');
         }
     }
 
     // ============================================================================
     // UTILITY FUNCTIONS
     // ============================================================================
+
+    /**
+     * Optimized API call helper with error handling
+     */
+    async function apiCall(action, params = {}, method = 'GET') {
+        try {
+            let url = `pest_detection.php?action=${action}`;
+            let options = {
+                method: method,
+                headers: {
+                    'Accept': 'application/json'
+                }
+            };
+
+            if (method === 'GET') {
+                // Add params to URL for GET requests
+                Object.keys(params).forEach(key => {
+                    url += `&${key}=${encodeURIComponent(params[key])}`;
+                });
+            } else if (method === 'POST') {
+                // Use FormData for POST requests
+                const formData = new FormData();
+                formData.append('action', action);
+                Object.keys(params).forEach(key => {
+                    formData.append(key, params[key]);
+                });
+                options.body = formData;
+            }
+
+            const response = await fetch(url, options);
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const contentType = response.headers.get('content-type');
+            if (!contentType || !contentType.includes('application/json')) {
+                const text = await response.text();
+                console.error('Non-JSON response:', text.substring(0, 200));
+                throw new Error('Server returned non-JSON response');
+            }
+
+            const data = await response.json();
+
+            if (!data.success && data.message) {
+                throw new Error(data.message);
+            }
+
+            return data;
+        } catch (error) {
+            console.error(`API call failed [${action}]:`, error);
+            throw error;
+        }
+    }
 
     /**
      * Format timestamp as time ago
@@ -1577,6 +1646,7 @@ include 'includes/header.php';
      * Escape HTML to prevent XSS
      */
     function escapeHtml(text) {
+        if (!text) return '';
         const div = document.createElement('div');
         div.textContent = text;
         return div.innerHTML;
@@ -1586,14 +1656,46 @@ include 'includes/header.php';
      * Show toast notification
      */
     function showToast(message, type = 'info') {
-        // Use existing toast system if available, otherwise use alert
-        if (typeof window.showToast === 'function') {
-            window.showToast(message, type);
+        // Use existing toast system if available, otherwise create simple toast
+        if (typeof window.notificationSystem !== 'undefined' && window.notificationSystem.showToast) {
+            window.notificationSystem.showToast({
+                title: type.charAt(0).toUpperCase() + type.slice(1),
+                message: message,
+                type: type,
+                timestamp: new Date().toISOString()
+            });
         } else {
-            console.log(`[${type.toUpperCase()}] ${message}`);
-            if (type === 'error') {
-                alert(message);
-            }
+            // Fallback: create simple toast
+            const toast = document.createElement('div');
+            toast.className = `fixed top-4 right-4 z-50 max-w-sm bg-white dark:bg-gray-800 rounded-lg shadow-lg border-l-4 ${
+                type === 'error' ? 'border-red-500' : 
+                type === 'success' ? 'border-green-500' : 
+                type === 'warning' ? 'border-yellow-500' : 'border-blue-500'
+            } p-4 animate-fade-in`;
+            
+            toast.innerHTML = `
+                <div class="flex items-start">
+                    <i class="fas fa-${
+                        type === 'error' ? 'exclamation-circle text-red-500' : 
+                        type === 'success' ? 'check-circle text-green-500' : 
+                        type === 'warning' ? 'exclamation-triangle text-yellow-500' : 'info-circle text-blue-500'
+                    } mr-3 mt-0.5"></i>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-900 dark:text-white">${escapeHtml(message)}</p>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.remove()" class="ml-4 text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateX(100%)';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
         }
     }
 
@@ -1609,13 +1711,17 @@ include 'includes/header.php';
 
     document.addEventListener('DOMContentLoaded', async function() {
         console.log('Real-Time Pest Detection System initializing...');
+        
+        // Check user role
+        const userRole = '<?php echo $currentUser['role']; ?>';
+        const isStudent = userRole === 'student';
 
         // Check for getUserMedia support
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             showToast('Your browser does not support camera access. Please use a modern browser.', 'error');
-            document.getElementById('live-indicator').textContent = 'NOT SUPPORTED';
-            document.getElementById('live-indicator').classList.remove('bg-gray-400');
-            document.getElementById('live-indicator').classList.add('bg-red-600');
+            document.getElementById('camera-status').textContent = 'NOT SUPPORTED';
+            document.getElementById('camera-status').classList.remove('bg-gray-400');
+            document.getElementById('camera-status').classList.add('bg-red-600');
             return;
         }
 
@@ -1680,15 +1786,21 @@ include 'includes/header.php';
         // Start camera feed (but not detection)
         await startCamera(selectedDeviceId);
 
-        // Update camera status
-        document.getElementById('camera-status').textContent = 'LIVE';
+        // Update camera status based on role
+        if (isStudent) {
+            document.getElementById('camera-status').textContent = 'VIEW ONLY';
+            document.getElementById('camera-status').classList.remove('bg-gray-400');
+            document.getElementById('camera-status').classList.add('bg-blue-600');
+            console.log('Student mode: Camera feed active, detection controls disabled');
+        } else {
+            document.getElementById('camera-status').textContent = 'LIVE';
+            document.getElementById('camera-status').classList.remove('bg-gray-400');
+            document.getElementById('camera-status').classList.add('bg-green-600');
+            console.log('Camera feed started. Click "Start Detection" to begin AI pest detection.');
+        }
 
         // Update unread count every 30 seconds
         setInterval(updateUnreadCount, 30000);
-        document.getElementById('camera-status').classList.remove('bg-gray-400');
-        document.getElementById('camera-status').classList.add('bg-green-600');
-
-        console.log('Camera feed started. Click "Start Detection" to begin AI pest detection.');
     });
 
     // Cleanup on page unload

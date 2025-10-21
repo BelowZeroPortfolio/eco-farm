@@ -54,6 +54,7 @@ config/secrets.php
 .env
 .env.local
 .env.production
+.htaccess
 
 # Camera and sensor data
 /data/camera_records_backup.json

@@ -135,85 +135,63 @@ ob_end_flush();
     </script>
 
     <style>
-        .slide-container {
-            position: relative;
-            overflow: hidden;
-        }
-
-        .slide {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            opacity: 0;
-            transition: opacity 1s ease-in-out;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            padding: 1.5rem;
-        }
-
-        .slide.active {
-            opacity: 1;
-        }
-
-        .slide-indicators {
-            position: absolute;
-            bottom: 1.5rem;
-            left: 50%;
-            transform: translateX(-50%);
-            display: flex;
-            gap: 0.375rem;
-        }
-
-        .indicator {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.4);
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .indicator.active {
-            background: white;
-            transform: scale(1.2);
-        }
-
-        .floating-element {
+        /* Animated Background Blobs */
+        .blob {
             position: absolute;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.08);
-            animation: float 6s ease-in-out infinite;
+            filter: blur(70px);
+            opacity: 0.7;
+            animation: blob 20s infinite;
         }
 
-        .floating-element:nth-child(1) {
-            width: 60px;
-            height: 60px;
-            top: 20%;
-            left: 10%;
+        .blob-1 {
+            width: 500px;
+            height: 500px;
+            background: linear-gradient(135deg, #10b981 0%, #3b82f6 100%);
+            top: -10%;
+            left: -10%;
             animation-delay: 0s;
         }
 
-        .floating-element:nth-child(2) {
-            width: 40px;
-            height: 40px;
-            top: 60%;
-            right: 15%;
-            animation-delay: 2s;
-        }
-
-        .floating-element:nth-child(3) {
-            width: 30px;
-            height: 30px;
-            top: 80%;
-            left: 20%;
+        .blob-2 {
+            width: 400px;
+            height: 400px;
+            background: linear-gradient(135deg, #8b5cf6 0%, #ec4899 100%);
+            bottom: -10%;
+            right: -10%;
             animation-delay: 4s;
         }
 
+        .blob-3 {
+            width: 350px;
+            height: 350px;
+            background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            animation-delay: 8s;
+        }
+
+        @keyframes blob {
+            0%, 100% {
+                transform: translate(0, 0) scale(1);
+            }
+            25% {
+                transform: translate(20px, -50px) scale(1.1);
+            }
+            50% {
+                transform: translate(-20px, 20px) scale(0.9);
+            }
+            75% {
+                transform: translate(50px, 50px) scale(1.05);
+            }
+        }
+
+        .dark .blob {
+            opacity: 0.4;
+        }
+
+        /* Input Focus Effects */
         .input-group input:focus {
             transform: translateY(-1px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -223,6 +201,7 @@ ob_end_flush();
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
         }
 
+        /* Login Button */
         .login-btn {
             background: linear-gradient(135deg, #10b981 0%, #059669 100%);
             transition: all 0.3s ease;
@@ -233,12 +212,9 @@ ob_end_flush();
             box-shadow: 0 4px 12px rgba(16, 185, 129, 0.4);
         }
 
+        /* Alert Animations */
         .alert-slide-in {
             animation: slideInDown 0.4s ease-out;
-        }
-
-        .alert-slide-out {
-            animation: slideOutUp 0.3s ease-in forwards;
         }
 
         @keyframes slideInDown {
@@ -246,25 +222,13 @@ ob_end_flush();
                 opacity: 0;
                 transform: translateY(-15px);
             }
-
             to {
                 opacity: 1;
                 transform: translateY(0);
             }
         }
 
-        @keyframes slideOutUp {
-            from {
-                opacity: 1;
-                transform: translateY(0);
-            }
-
-            to {
-                opacity: 0;
-                transform: translateY(-15px);
-            }
-        }
-
+        /* Progress Bar */
         .progress-bar {
             animation: progressBar 4s linear forwards;
         }
@@ -273,233 +237,152 @@ ob_end_flush();
             from {
                 width: 100%;
             }
-
             to {
                 width: 0%;
             }
         }
+
+        /* Glass Effect for Login Card */
+        .glass-card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .dark .glass-card {
+            background: rgba(17, 24, 39, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
     </style>
 </head>
 
-<body class="h-full bg-gradient-to-br from-green-50 via-white to-blue-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
-    <div class="min-h-screen flex">
-        <!-- Left Side - Animated Slideshow -->
-        <div class="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-green-600 via-emerald-600 to-blue-600 relative slide-container">
-            <!-- Background Pattern -->
-            <div class="absolute inset-0 opacity-10">
-                <svg class="w-full h-full" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
-                    <defs>
-                        <pattern id="grid" width="8" height="8" patternUnits="userSpaceOnUse">
-                            <path d="M 8 0 L 0 0 0 8" fill="none" stroke="currentColor" stroke-width="0.5" />
-                        </pattern>
-                    </defs>
-                    <rect width="100" height="100" fill="url(#grid)" />
-                </svg>
-            </div>
+<body class="h-full bg-gray-50 dark:bg-gray-900 relative overflow-hidden">
+    <!-- Animated Background Blobs -->
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+    <div class="blob blob-3"></div>
 
-            <!-- Floating Background Elements -->
-            <div class="absolute inset-0">
-                <div class="floating-element"></div>
-                <div class="floating-element"></div>
-                <div class="floating-element"></div>
-            </div>
+    <div class="min-h-screen flex relative z-10">
+        <!-- Login Form Container -->
+        <div class="w-full flex items-center justify-center p-4">
+            <div class="max-w-md w-full animate-fade-in">
+                <!-- Glass Card Effect -->
+                <div class="glass-card rounded-2xl shadow-2xl p-8">
+                    <!-- Header with Back Link and Theme Toggle -->
+                    <div class="flex items-center justify-between mb-4">
+                        <a href="index.php" class="inline-flex items-center text-xs text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors">
+                            <i class="fas fa-arrow-left mr-1 text-xs"></i>
+                            Back to Home
+                        </a>
+                        <button id="theme-toggle" onclick="toggleTheme()" class="p-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700">
+                            <i class="fas fa-moon text-sm"></i>
+                        </button>
+                    </div>
 
-            <!-- Slide 1 - Smart Monitoring -->
-            <div class="slide active">
-                <div class="mb-6">
-                    <div class="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center mb-4 mx-auto">
-                        <i class="fas fa-chart-line text-2xl text-white"></i>
-                    </div>
-                    <h2 class="text-2xl font-bold text-white mb-3">Smart Farm Monitoring</h2>
-                    <p class="text-sm text-green-100 max-w-sm leading-relaxed">
-                        Real-time sensor data collection and analysis for optimal crop management and yield optimization.
-                    </p>
-                </div>
-                <div class="grid grid-cols-2 gap-3 max-w-xs">
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-3 text-center">
-                        <i class="fas fa-thermometer-half text-lg text-white mb-1"></i>
-                        <div class="text-white text-xs">Temperature</div>
-                    </div>
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-3 text-center">
-                        <i class="fas fa-tint text-lg text-white mb-1"></i>
-                        <div class="text-white text-xs">Humidity</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Slide 2 - Pest Detection -->
-            <div class="slide">
-                <div class="mb-6">
-                    <div class="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center mb-4 mx-auto">
-                        <i class="fas fa-bug text-2xl text-white"></i>
-                    </div>
-                    <h2 class="text-2xl font-bold text-white mb-3">AI Pest Detection</h2>
-                    <p class="text-sm text-green-100 max-w-sm leading-relaxed">
-                        Advanced computer vision technology to identify and track pest infestations before they spread.
-                    </p>
-                </div>
-                <div class="flex items-center space-x-3">
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                        <i class="fas fa-camera text-sm text-white"></i>
-                    </div>
-                    <div class="text-white text-sm">→</div>
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                        <i class="fas fa-brain text-sm text-white"></i>
-                    </div>
-                    <div class="text-white text-sm">→</div>
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2">
-                        <i class="fas fa-exclamation-triangle text-sm text-white"></i>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Slide 3 - Analytics Dashboard -->
-            <div class="slide">
-                <div class="mb-6">
-                    <div class="w-16 h-16 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center mb-4 mx-auto">
-                        <i class="fas fa-chart-pie text-2xl text-white"></i>
-                    </div>
-                    <h2 class="text-2xl font-bold text-white mb-3">Comprehensive Analytics</h2>
-                    <p class="text-sm text-green-100 max-w-sm leading-relaxed">
-                        Detailed reports and insights to make data-driven decisions for your agricultural operations.
-                    </p>
-                </div>
-                <div class="grid grid-cols-3 gap-2 max-w-xs">
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
-                        <div class="text-lg font-bold text-white">24/7</div>
-                        <div class="text-xs text-green-100">Monitoring</div>
-                    </div>
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
-                        <div class="text-lg font-bold text-white">95%</div>
-                        <div class="text-xs text-green-100">Accuracy</div>
-                    </div>
-                    <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 text-center">
-                        <div class="text-lg font-bold text-white">∞</div>
-                        <div class="text-xs text-green-100">Scalable</div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Slide Indicators -->
-            <div class="slide-indicators">
-                <div class="indicator active" onclick="goToSlide(0)"></div>
-                <div class="indicator" onclick="goToSlide(1)"></div>
-                <div class="indicator" onclick="goToSlide(2)"></div>
-            </div>
-        </div>
-
-        <!-- Right Side - Login Form -->
-        <div class="w-full lg:w-1/2 flex items-center justify-center p-4 lg:p-6">
-            <div class="max-w-sm w-full animate-fade-in">
-                <!-- Header with Back Link and Theme Toggle -->
-                <div class="flex items-center justify-between mb-4">
-                    <a href="index.php" class="inline-flex items-center text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
-                        <i class="fas fa-arrow-left mr-2"></i>
-                        Back to Home
-                    </a>
-                    <button id="theme-toggle" onclick="toggleTheme()" class="p-2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
-                        <i class="fas fa-moon text-xs"></i>
-                    </button>
-                </div>
-
-                <!-- Logo and Welcome -->
-                <div class="text-center mb-6">
-                    <div class="w-10 h-10 bg-gradient-to-br from-green-600 to-green-500 rounded-xl flex items-center justify-center mx-auto mb-3">
-                        <i class="fas fa-seedling text-white"></i>
-                    </div>
-                    <h1 class="text-lg font-bold text-gray-900 dark:text-white mb-1">Welcome Back!</h1>
-                    <p class="text-xs text-gray-600 dark:text-gray-400">Sign in to your farm monitoring dashboard</p>
-                </div>
-
-
-
-                <!-- Alert Messages -->
-                <?php if ($error): ?>
-                    <div id="error-alert" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded-lg alert-slide-in relative overflow-hidden">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <i class="fas fa-exclamation-circle text-red-500 dark:text-red-400 mr-2 text-xs"></i>
-                                <span class="text-red-700 dark:text-red-300 text-xs"><?php echo htmlspecialchars($error); ?></span>
+                    <!-- Logo and Welcome -->
+                    <div class="text-center mb-6">
+                        <div class="flex justify-center mb-3">
+                            <div class="w-12 h-12 bg-gradient-to-br from-green-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg">
+                                <img src="includes/sagay.png" alt="Sagay Eco-Farm Logo" class="w-9 h-9 object-contain">
                             </div>
-                            <button onclick="dismissAlert('error-alert')" class="text-red-400 dark:text-red-300 hover:text-red-600 dark:hover:text-red-200 ml-2">
-                                <i class="fas fa-times text-xs"></i>
-                            </button>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-0.5 bg-red-300 dark:bg-red-600 progress-bar"></div>
+                        <h1 class="text-lg font-bold text-gray-900 dark:text-white mb-1">Welcome Back!</h1>
+                        <p class="text-xs text-gray-600 dark:text-gray-400">Sign in to your farm monitoring dashboard</p>
                     </div>
-                <?php endif; ?>
 
-                <?php if ($message): ?>
-                    <div id="success-alert" class="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 rounded-lg alert-slide-in relative overflow-hidden">
-                        <div class="flex items-center justify-between">
-                            <div class="flex items-center">
-                                <i class="fas fa-check-circle text-green-500 dark:text-green-400 mr-2 text-xs"></i>
-                                <span class="text-green-700 dark:text-green-300 text-xs"><?php echo htmlspecialchars($message); ?></span>
+
+
+                    <!-- Alert Messages -->
+                    <?php if ($error): ?>
+                        <div id="error-alert" class="mb-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 p-3 rounded-lg alert-slide-in relative overflow-hidden">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <i class="fas fa-exclamation-circle text-red-500 dark:text-red-400 mr-2 text-sm"></i>
+                                    <span class="text-red-700 dark:text-red-300 text-xs"><?php echo htmlspecialchars($error); ?></span>
+                                </div>
+                                <button onclick="dismissAlert('error-alert')" class="text-red-400 dark:text-red-300 hover:text-red-600 dark:hover:text-red-200 ml-2">
+                                    <i class="fas fa-times text-xs"></i>
+                                </button>
                             </div>
-                            <button onclick="dismissAlert('success-alert')" class="text-green-400 dark:text-green-300 hover:text-green-600 dark:hover:text-green-200 ml-2">
-                                <i class="fas fa-times text-xs"></i>
-                            </button>
+                            <div class="absolute bottom-0 left-0 h-0.5 bg-red-400 dark:bg-red-600 progress-bar"></div>
                         </div>
-                        <div class="absolute bottom-0 left-0 h-0.5 bg-green-300 dark:bg-green-600 progress-bar"></div>
-                    </div>
-                <?php endif; ?>
+                    <?php endif; ?>
 
-                <!-- Login Form -->
-                <form method="POST" action="" class="space-y-4">
-                    <div class="input-group">
-                        <label for="username" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Username</label>
-                        <div class="relative">
-                            <input type="text"
-                                id="username"
-                                name="username"
-                                value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>"
-                                placeholder="Enter your username"
-                                required
-                                autofocus
-                                class="w-full px-3 py-2.5 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-300 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400">
-                            <i class="fas fa-user absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs"></i>
+                    <?php if ($message): ?>
+                        <div id="success-alert" class="mb-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-3 rounded-lg alert-slide-in relative overflow-hidden">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center">
+                                    <i class="fas fa-check-circle text-green-500 dark:text-green-400 mr-2 text-sm"></i>
+                                    <span class="text-green-700 dark:text-green-300 text-xs"><?php echo htmlspecialchars($message); ?></span>
+                                </div>
+                                <button onclick="dismissAlert('success-alert')" class="text-green-400 dark:text-green-300 hover:text-green-600 dark:hover:text-green-200 ml-2">
+                                    <i class="fas fa-times text-xs"></i>
+                                </button>
+                            </div>
+                            <div class="absolute bottom-0 left-0 h-0.5 bg-green-400 dark:bg-green-600 progress-bar"></div>
                         </div>
-                    </div>
+                    <?php endif; ?>
 
-                    <div class="input-group">
-                        <label for="password" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1">Password</label>
-                        <div class="relative">
-                            <input type="password"
-                                id="password"
-                                name="password"
-                                placeholder="Enter your password"
-                                required
-                                class="w-full px-3 py-2.5 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-300 bg-white dark:bg-gray-800 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400">
-                            <i class="fas fa-lock absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs"></i>
+                    <!-- Login Form -->
+                    <form method="POST" action="" class="space-y-4">
+                        <div class="input-group">
+                            <label for="username" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Username</label>
+                            <div class="relative">
+                                <input type="text"
+                                    id="username"
+                                    name="username"
+                                    value="<?php echo htmlspecialchars($_POST['username'] ?? ''); ?>"
+                                    placeholder="Enter your username"
+                                    required
+                                    autofocus
+                                    class="w-full px-3 py-2 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500">
+                                <i class="fas fa-user absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs"></i>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="flex items-center justify-between">
-                        <label class="flex items-center cursor-pointer">
-                            <input type="checkbox" id="show-password" onchange="togglePasswordVisibility()" class="rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500 w-3 h-3 bg-white dark:bg-gray-800">
-                            <span class="ml-2 text-xs text-gray-600 dark:text-gray-400">Show password</span>
-                        </label>
-                        <a href="#" class="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors">Forgot password?</a>
-                    </div>
+                        <div class="input-group">
+                            <label for="password" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Password</label>
+                            <div class="relative">
+                                <input type="password"
+                                    id="password"
+                                    name="password"
+                                    placeholder="Enter your password"
+                                    required
+                                    class="w-full px-3 py-2 pl-9 text-sm border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 transition-all duration-300 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500">
+                                <i class="fas fa-lock absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 text-xs"></i>
+                            </div>
+                        </div>
 
-                    <button type="submit" class="w-full login-btn text-white py-2.5 px-4 rounded-lg font-semibold text-sm transition-all duration-300 hover:shadow-lg">
-                        <i class="fas fa-sign-in-alt mr-2 text-xs"></i>
-                        Sign In
-                    </button>
-                </form>
-                <!-- Trust Indicators -->
-                <div class="mt-6 flex items-center justify-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
-                    <div class="flex items-center">
-                        <i class="fas fa-shield-alt text-green-500 dark:text-green-400 mr-1"></i>
-                        <span>Secure</span>
-                    </div>
-                    <div class="flex items-center">
-                        <i class="fas fa-clock text-blue-500 dark:text-blue-400 mr-1"></i>
-                        <span>24/7 Access</span>
-                    </div>
-                    <div class="flex items-center">
-                        <i class="fas fa-mobile-alt text-purple-500 dark:text-purple-400 mr-1"></i>
-                        <span>Mobile Ready</span>
+                        <div class="flex items-center justify-between">
+                            <label class="flex items-center cursor-pointer">
+                                <input type="checkbox" id="show-password" onchange="togglePasswordVisibility()" class="rounded border-gray-300 dark:border-gray-600 text-green-600 focus:ring-green-500 w-3.5 h-3.5 bg-white dark:bg-gray-700">
+                                <span class="ml-1.5 text-xs text-gray-600 dark:text-gray-400">Show password</span>
+                            </label>
+                            <a href="forgot_password.php" class="text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 transition-colors font-medium">Forgot password?</a>
+                        </div>
+
+                        <button type="submit" class="w-full login-btn text-white py-2.5 px-4 rounded-lg text-sm font-semibold transition-all duration-300 hover:shadow-lg">
+                            <i class="fas fa-sign-in-alt mr-1.5 text-xs"></i>
+                            Sign In
+                        </button>
+                    </form>
+
+                    <!-- Trust Indicators -->
+                    <div class="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <div class="flex items-center justify-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
+                            <div class="flex items-center">
+                                <i class="fas fa-shield-alt text-green-500 dark:text-green-400 mr-1 text-xs"></i>
+                                <span>Secure</span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-clock text-blue-500 dark:text-blue-400 mr-1 text-xs"></i>
+                                <span>24/7 Access</span>
+                            </div>
+                            <div class="flex items-center">
+                                <i class="fas fa-mobile-alt text-purple-500 dark:text-purple-400 mr-1 text-xs"></i>
+                                <span>Mobile Ready</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -507,42 +390,6 @@ ob_end_flush();
     </div>
 
     <script>
-        let currentSlide = 0;
-        const slides = document.querySelectorAll('.slide');
-        const indicators = document.querySelectorAll('.indicator');
-
-        function showSlide(index) {
-            slides.forEach((slide, i) => {
-                slide.classList.toggle('active', i === index);
-            });
-            indicators.forEach((indicator, i) => {
-                indicator.classList.toggle('active', i === index);
-            });
-        }
-
-        function nextSlide() {
-            currentSlide = (currentSlide + 1) % slides.length;
-            showSlide(currentSlide);
-        }
-
-        function goToSlide(index) {
-            currentSlide = index;
-            showSlide(currentSlide);
-        }
-
-        // Auto-advance slides every 5 seconds
-        setInterval(nextSlide, 5000);
-
-        // Dismiss alert function
-        function dismissAlert(alertId) {
-            const alert = document.getElementById(alertId);
-            if (alert) {
-                alert.classList.add('alert-slide-out');
-                setTimeout(() => {
-                    alert.remove();
-                }, 300);
-            }
-        }
 
         // Auto-dismiss alerts
         function autoDismissAlerts() {
@@ -600,8 +447,17 @@ ob_end_flush();
             if (themeToggle) {
                 const icon = themeToggle.querySelector('i');
                 if (icon) {
-                    icon.className = theme === 'dark' ? 'fas fa-sun text-xs' : 'fas fa-moon text-xs';
+                    icon.className = theme === 'dark' ? 'fas fa-sun' : 'fas fa-moon';
                 }
+            }
+        }
+
+        function dismissAlert(alertId) {
+            const alert = document.getElementById(alertId);
+            if (alert) {
+                alert.style.opacity = '0';
+                alert.style.transform = 'translateY(-10px)';
+                setTimeout(() => alert.remove(), 300);
             }
         }
 
@@ -626,17 +482,6 @@ ob_end_flush();
                 url.searchParams.delete('message');
                 window.history.replaceState({}, document.title, url.pathname);
             }
-
-            // Add subtle hover effects to form elements
-            document.querySelectorAll('input').forEach(input => {
-                input.addEventListener('focus', function() {
-                    this.parentElement.style.transform = 'translateY(-1px)';
-                });
-
-                input.addEventListener('blur', function() {
-                    this.parentElement.style.transform = 'translateY(0)';
-                });
-            });
         });
     </script>
 </body>

@@ -141,78 +141,104 @@ class ExportHandler
             // Add BOM for UTF-8 compatibility
             fprintf($output, chr(0xEF) . chr(0xBB) . chr(0xBF));
 
-            // Add metadata header
-            fputcsv($output, ['# IoT Farm Monitoring System Export']);
-            fputcsv($output, ['# Report Type: ' . ucfirst($reportType)]);
-            fputcsv($output, ['# Date Range: ' . $startDate . ' to ' . $endDate]);
-            fputcsv($output, ['# Generated: ' . date('Y-m-d H:i:s T')]);
-            fputcsv($output, ['# Total Records: ' . count($data)]);
+            // Add professional metadata header
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, ['IoT Farm Monitoring System - Data Export Report']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, []);
+            fputcsv($output, ['Report Information']);
+            fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+            fputcsv($output, ['Report Type:', ucfirst($reportType) . ' Data Report']);
+            fputcsv($output, ['Date Range:', date('F j, Y', strtotime($startDate)) . ' to ' . date('F j, Y', strtotime($endDate))]);
+            fputcsv($output, ['Generated On:', date('F j, Y \a\t g:i A T')]);
+            fputcsv($output, ['Total Records:', number_format(count($data))]);
+            fputcsv($output, ['Exported By:', 'User ID ' . $userId]);
+            fputcsv($output, []);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, ['DATA SECTION']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
             fputcsv($output, []); // Empty line
 
             if ($reportType === 'sensor') {
-                // Sensor data headers
+                // Sensor data headers with better formatting
                 $headers = [
-                    'Date',
-                    'Sensor Name',
-                    'Sensor Type',
-                    'Location',
-                    'Average Value',
-                    'Minimum Value',
-                    'Maximum Value',
-                    'Unit',
-                    'Reading Count',
-                    'Data Quality'
+                    'DATE',
+                    'SENSOR NAME',
+                    'SENSOR TYPE',
+                    'LOCATION',
+                    'AVG VALUE',
+                    'MIN VALUE',
+                    'MAX VALUE',
+                    'UNIT',
+                    'READINGS',
+                    'QUALITY'
                 ];
                 fputcsv($output, $headers);
 
+                // Add separator line
+                fputcsv($output, array_fill(0, count($headers), '─────────────'));
+
                 foreach ($data as $row) {
                     $csvRow = [
-                        $row['date'],
+                        date('M j, Y', strtotime($row['date'])),
                         $row['sensor_name'],
                         ucfirst(str_replace('_', ' ', $row['sensor_type'])),
                         $row['location'],
-                        number_format($row['avg_value'], 2),
-                        number_format($row['min_value'], 2),
-                        number_format($row['max_value'], 2),
+                        number_format($row['avg_value'], 2) . ' ' . $row['unit'],
+                        number_format($row['min_value'], 2) . ' ' . $row['unit'],
+                        number_format($row['max_value'], 2) . ' ' . $row['unit'],
                         $row['unit'],
-                        $row['reading_count'],
+                        number_format($row['reading_count']),
                         $this->calculateDataQuality($row['reading_count'])
                     ];
                     fputcsv($output, $csvRow);
                 }
             } else {
-                // Pest data headers
+                // Pest data headers with better formatting
                 $headers = [
-                    'Date',
-                    'Pest Type',
-                    'Location',
-                    'Severity',
-                    'Status',
-                    'Description',
-                    'Detection Time',
-                    'Risk Level'
+                    'DATE & TIME',
+                    'PEST TYPE',
+                    'SEVERITY',
+                    'CONFIDENCE',
+                    'CAMERA',
+                    'LOCATION',
+                    'STATUS',
+                    'SUGGESTED ACTIONS'
                 ];
                 fputcsv($output, $headers);
 
+                // Add separator line
+                fputcsv($output, array_fill(0, count($headers), '─────────────'));
+
                 foreach ($data as $row) {
                     $csvRow = [
-                        $row['date'],
+                        date('M j, Y g:i A', strtotime($row['detected_at'])),
                         $row['pest_type'],
+                        strtoupper($row['severity']),
+                        isset($row['confidence_score']) ? number_format($row['confidence_score'], 1) . '%' : 'N/A',
+                        isset($row['camera_name']) && $row['camera_name'] ? $row['camera_name'] : 'Manual Entry',
                         $row['location'],
-                        ucfirst($row['severity']),
                         ucfirst($row['status']),
-                        $row['description'],
-                        date('H:i:s', strtotime($row['detected_at'])),
-                        $this->calculateRiskLevel($row['severity'], $row['status'])
+                        isset($row['suggested_actions']) && $row['suggested_actions'] ? $row['suggested_actions'] : 'No actions suggested'
                     ];
                     fputcsv($output, $csvRow);
                 }
             }
 
-            // Add summary footer
+            // Add professional summary footer
             fputcsv($output, []);
-            fputcsv($output, ['# Export completed successfully']);
-            fputcsv($output, ['# For support, contact: admin@farmmonitoring.com']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, ['EXPORT SUMMARY']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, []);
+            fputcsv($output, ['Total Records Exported:', number_format(count($data))]);
+            fputcsv($output, ['Export Status:', 'Completed Successfully']);
+            fputcsv($output, ['Export Format:', 'CSV (Comma-Separated Values)']);
+            fputcsv($output, []);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, ['Sagay Eco-Farm IoT Agricultural System']);
+            fputcsv($output, ['For support: admin@farmmonitoring.com']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
 
             fclose($output);
 
@@ -1006,7 +1032,7 @@ class ExportHandler
     }
 
     /**
-     * Get pest data for export
+     * Get pest data for export with enhanced fields
      */
     private function getPestExportData($startDate, $endDate, $maxRows)
     {
@@ -1014,14 +1040,18 @@ class ExportHandler
             $pdo = getDatabaseConnection();
             $stmt = $pdo->prepare("
                 SELECT 
-                    pest_type,
-                    location,
-                    severity,
-                    status,
-                    description,
-                    detected_at,
-                    DATE(detected_at) as date
-                FROM pest_alerts
+                    pa.pest_type,
+                    pa.location,
+                    pa.severity,
+                    pa.status,
+                    pa.confidence_score,
+                    pa.description,
+                    pa.suggested_actions,
+                    pa.detected_at,
+                    DATE(pa.detected_at) as date,
+                    c.camera_name
+                FROM pest_alerts pa
+                LEFT JOIN cameras c ON pa.camera_id = c.id
                 WHERE DATE(detected_at) BETWEEN ? AND ?
                 ORDER BY detected_at DESC
                 LIMIT ?

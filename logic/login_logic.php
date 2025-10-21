@@ -109,6 +109,7 @@ class LoginLogic
         $_SESSION['username'] = $user['username'];
         $_SESSION['role'] = $user['role'];
         $_SESSION['email'] = $user['email'];
+        $_SESSION['status'] = $user['status'];
         $_SESSION['login_time'] = time();
         $_SESSION['last_activity'] = time();
     }

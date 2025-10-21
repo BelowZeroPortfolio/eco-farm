@@ -95,19 +95,19 @@ function getChatbotResponse($questions, $questionId)
 ?>
 
 <!-- Chatbot Widget -->
-<div id="chatbot-widget" class="fixed bottom-6 right-6 z-50">
+<div id="chatbot-widget" class="fixed bottom-4 right-4 lg:bottom-6 lg:right-6 z-50">
     <!-- Chatbot Toggle Button -->
     <button id="chatbot-toggle"
-        class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-full p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300"
+        class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-full p-3 lg:p-4 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-4 focus:ring-green-300"
         onclick="toggleChatbot()"
         title="Farm Assistant">
-        <i class="fas fa-comments text-xl"></i>
+        <i class="fas fa-comments text-lg lg:text-xl"></i>
         <div class="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
     </button>
 
     <!-- Chatbot Panel -->
     <div id="chatbot-panel"
-        class="hidden absolute bottom-16 right-0 w-96 max-w-[calc(100vw-3rem)] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+        class="hidden fixed lg:absolute bottom-0 left-0 right-0 lg:bottom-16 lg:right-0 lg:left-auto w-full lg:w-96 bg-white dark:bg-gray-800 lg:rounded-2xl rounded-t-2xl shadow-2xl border-t lg:border border-gray-200 dark:border-gray-700 overflow-hidden">
 
         <!-- Chatbot Header -->
         <div class="bg-gradient-to-r from-green-500 to-green-600 text-white p-4">
@@ -135,7 +135,7 @@ function getChatbotResponse($questions, $questionId)
         </div>
 
         <!-- Chat Messages Area -->
-        <div class="h-96 flex flex-col bg-gray-50 dark:bg-gray-900">
+        <div class="h-[50vh] lg:h-96 flex flex-col bg-gray-50 dark:bg-gray-900">
             <!-- Messages Container -->
             <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4">
                 <!-- Welcome Message -->
@@ -980,16 +980,18 @@ function getChatbotResponse($questions, $questionId)
     }
 
     /* Responsive adjustments */
-    @media (max-width: 640px) {
+    @media (max-width: 1024px) {
         #chatbot-panel {
-            width: calc(100vw - 1.5rem);
-            max-width: none;
-            bottom: 5rem;
-            right: 0.75rem;
+            max-height: 70vh;
+        }
+        
+        #chatbot-widget {
+            bottom: 1rem;
+            right: 1rem;
         }
 
         .message-bubble {
-            max-width: 90%;
+            max-width: 80%;
         }
 
         .quick-action-btn {
@@ -998,15 +1000,14 @@ function getChatbotResponse($questions, $questionId)
         }
     }
 
-    @media (max-width: 480px) {
-        #chatbot-panel {
-            width: calc(100vw - 1rem);
-            right: 0.5rem;
-            bottom: 4.5rem;
+    @media (max-width: 640px) {
+        .quick-action-btn {
+            font-size: 0.7rem;
+            padding: 0.4rem 0.6rem;
         }
-
-        .h-96 {
-            height: 70vh;
+        
+        .message-bubble {
+            max-width: 75%;
         }
     }
 

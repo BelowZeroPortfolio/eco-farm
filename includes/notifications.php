@@ -25,8 +25,24 @@ define('NOTIFICATION_TYPES', [
 function getPestAlertNotifications($limit = null)
 {
     try {
+        // Check if database config exists
+        if (!file_exists('config/database.php')) {
+            return [];
+        }
+        
         require_once 'config/database.php';
+        
+        // Check if function exists
+        if (!function_exists('getDatabaseConnection')) {
+            return [];
+        }
+        
         $pdo = getDatabaseConnection();
+        
+        // Check if connection is valid
+        if (!$pdo) {
+            return [];
+        }
 
         $query = "
             SELECT 
@@ -48,6 +64,11 @@ function getPestAlertNotifications($limit = null)
         }
 
         $stmt = $pdo->query($query);
+        
+        if (!$stmt) {
+            return [];
+        }
+        
         $pestAlerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         // Convert pest alerts to notification format
@@ -66,6 +87,9 @@ function getPestAlertNotifications($limit = null)
         }
 
         return $notifications;
+    } catch (PDOException $e) {
+        error_log("Database error fetching pest alerts: " . $e->getMessage());
+        return [];
     } catch (Exception $e) {
         error_log("Error fetching pest alerts: " . $e->getMessage());
         return [];
@@ -327,19 +351,49 @@ function getTimeAgo($timestamp)
  */
 function generateNotificationBell()
 {
-    $unreadCount = getUnreadNotificationCount();
+    try {
+        $unreadCount = getUnreadNotificationCount();
+        $hasCritical = false;
+        
+        // Check if there are critical notifications
+        $notifications = getNotifications(5, true);
+        foreach ($notifications as $notification) {
+            if ($notification['type'] === 'critical') {
+                $hasCritical = true;
+                break;
+            }
+        }
+        
+        $bellClass = $hasCritical ? 'fa-bell animate-pulse' : 'fa-bell';
+        $badgeColor = $hasCritical ? 'bg-red-600' : 'bg-red-500';
 
-    return "
-    <div class='relative'>
-        <button id='notification-bell' class='relative p-2 text-gray-600 hover:text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg transition-colors duration-200'>
-            <i class='fas fa-bell text-xl'></i>
-            " . ($unreadCount > 0 ? "
-            <span class='absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-medium'>
-                " . ($unreadCount > 9 ? '9+' : $unreadCount) . "
-            </span>
-            " : "") . "
-        </button>
-    </div>";
+        return "
+        <div class='relative'>
+            <button id='notification-bell' 
+                    class='relative p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg transition-all duration-200'
+                    aria-label='Notifications'
+                    aria-haspopup='true'
+                    aria-expanded='false'>
+                <i class='fas {$bellClass} text-xl'></i>
+                " . ($unreadCount > 0 ? "
+                <span class='absolute -top-1 -right-1 {$badgeColor} text-white text-xs rounded-full h-5 w-5 flex items-center justify-center font-bold shadow-lg' aria-label='{$unreadCount} unread notifications'>
+                    " . ($unreadCount > 99 ? '99+' : $unreadCount) . "
+                </span>
+                " : "") . "
+            </button>
+        </div>";
+    } catch (Exception $e) {
+        error_log("Error generating notification bell: " . $e->getMessage());
+        // Return a basic bell without count on error
+        return "
+        <div class='relative'>
+            <button id='notification-bell' 
+                    class='relative p-2 text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-primary-500 rounded-lg transition-all duration-200'
+                    aria-label='Notifications'>
+                <i class='fas fa-bell text-xl'></i>
+            </button>
+        </div>";
+    }
 }
 
 /**
@@ -353,6 +407,8 @@ function initializeNotificationSystem()
         constructor() {
             this.notifications = [];
             this.unreadCount = " . getUnreadNotificationCount() . ";
+            this.dropdownOpen = false;
+            this.eventListeners = [];
             this.init();
         }
         
@@ -360,12 +416,162 @@ function initializeNotificationSystem()
             this.setupEventListeners();
             this.loadNotifications();
             
-            // Only auto-show critical notifications on dashboard or if explicitly requested
-            // This prevents toasts from showing on every page refresh
+            // Only auto-show critical notifications on dashboard and only once per session
             const currentPage = window.location.pathname.split('/').pop().replace('.php', '');
-            if (currentPage === 'dashboard' || currentPage === 'test_notifications') {
-                // Check if we should show notifications (only if not shown recently)
-                this.checkAndShowNewNotifications();
+            if (currentPage === 'dashboard') {
+                // Use sessionStorage instead of localStorage to show once per session
+                const shownThisSession = sessionStorage.getItem('notificationsShownThisSession');
+                if (!shownThisSession) {
+                    this.checkAndShowNewNotifications();
+                    sessionStorage.setItem('notificationsShownThisSession', 'true');
+                }
+            }
+            
+            // Add smooth animations
+            this.addAnimationStyles();
+            
+            // Start real-time polling for notification updates
+            this.startPolling();
+        }
+        
+        startPolling() {
+            // Poll for new notifications every 30 seconds
+            this.pollingInterval = setInterval(() => {
+                this.checkForNewNotifications();
+            }, 30000); // 30 seconds
+            
+            // Also check when page becomes visible again
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    this.checkForNewNotifications();
+                }
+            });
+        }
+        
+        async checkForNewNotifications() {
+            try {
+                // Fetch latest notification count
+                const response = await fetch('includes/notification_api.php?action=get_unread_count', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                
+                if (data.success && data.unread_count !== undefined) {
+                    const newCount = data.unread_count;
+                    const oldCount = this.unreadCount;
+                    
+                    // Update count
+                    this.unreadCount = newCount;
+                    this.updateBellCount();
+                    
+                    // If there are new notifications, show a subtle indicator
+                    if (newCount > oldCount && newCount > 0) {
+                        this.showNewNotificationIndicator();
+                        
+                        // Optionally fetch and show new critical notifications
+                        if (data.has_critical) {
+                            this.fetchAndShowNewCritical();
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking for new notifications:', error);
+            }
+        }
+        
+        showNewNotificationIndicator() {
+            const bell = document.getElementById('notification-bell');
+            if (bell) {
+                // Add a subtle pulse animation
+                bell.classList.add('notification-pulse');
+                setTimeout(() => {
+                    bell.classList.remove('notification-pulse');
+                }, 2000);
+            }
+        }
+        
+        async fetchAndShowNewCritical() {
+            // Only show if not on dashboard (dashboard already shows on load)
+            const currentPage = window.location.pathname.split('/').pop().replace('.php', '');
+            if (currentPage === 'dashboard') return;
+            
+            try {
+                const response = await fetch('includes/notification_api.php?action=get_new_critical', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) return;
+                
+                const data = await response.json();
+                
+                if (data.success && data.notifications && data.notifications.length > 0) {
+                    // Show only the first critical notification as a toast
+                    const notification = data.notifications[0];
+                    this.showToast(notification);
+                }
+            } catch (error) {
+                console.error('Error fetching critical notifications:', error);
+            }
+        }
+        
+        addAnimationStyles() {
+            if (!document.getElementById('notification-animations')) {
+                const style = document.createElement('style');
+                style.id = 'notification-animations';
+                style.textContent = `
+                    @keyframes slideInRight {
+                        from {
+                            transform: translateX(100%);
+                            opacity: 0;
+                        }
+                        to {
+                            transform: translateX(0);
+                            opacity: 1;
+                        }
+                    }
+                    
+                    @keyframes fadeIn {
+                        from { opacity: 0; }
+                        to { opacity: 1; }
+                    }
+                    
+                    @keyframes pulse {
+                        0%, 100% { opacity: 1; }
+                        50% { opacity: 0.5; }
+                    }
+                    
+                    .toast-notification {
+                        animation: slideInRight 0.3s ease-out;
+                    }
+                    
+                    .notification-dropdown-enter {
+                        animation: fadeIn 0.2s ease-out;
+                    }
+                    
+                    .notification-pulse {
+                        animation: pulse 2s ease-in-out infinite;
+                    }
+                    
+                    @keyframes bellShake {
+                        0%, 100% { transform: rotate(0deg); }
+                        10%, 30%, 50%, 70%, 90% { transform: rotate(-10deg); }
+                        20%, 40%, 60%, 80% { transform: rotate(10deg); }
+                    }
+                    
+                    .notification-pulse i {
+                        animation: bellShake 0.5s ease-in-out;
+                    }
+                `;
+                document.head.appendChild(style);
             }
         }
         
@@ -373,28 +579,64 @@ function initializeNotificationSystem()
             // Notification bell click
             const bell = document.getElementById('notification-bell');
             if (bell) {
-                bell.addEventListener('click', (e) => {
+                const bellClickHandler = (e) => {
                     e.preventDefault();
+                    e.stopPropagation();
                     this.toggleNotificationDropdown();
-                });
+                };
+                bell.addEventListener('click', bellClickHandler);
+                this.eventListeners.push({ element: bell, event: 'click', handler: bellClickHandler });
             }
             
             // Close toast notifications
-            document.addEventListener('click', (e) => {
+            const toastCloseHandler = (e) => {
                 if (e.target.closest('.toast-close')) {
                     const toast = e.target.closest('.toast-notification');
                     this.closeToast(toast);
                 }
-            });
+            };
+            document.addEventListener('click', toastCloseHandler);
+            this.eventListeners.push({ element: document, event: 'click', handler: toastCloseHandler });
             
             // Mark notifications as read when clicked
-            document.addEventListener('click', (e) => {
+            const notificationClickHandler = (e) => {
                 if (e.target.closest('.notification-item')) {
                     const item = e.target.closest('.notification-item');
                     const notificationId = item.dataset.notificationId;
                     this.markAsRead(notificationId);
+                    
+                    // Navigate to action URL if exists
+                    const notification = this.notifications.find(n => n.id === notificationId);
+                    if (notification && notification.action_url) {
+                        window.location.href = notification.action_url;
+                    }
                 }
+            };
+            document.addEventListener('click', notificationClickHandler);
+            this.eventListeners.push({ element: document, event: 'click', handler: notificationClickHandler });
+            
+            // Keyboard navigation for accessibility
+            const keydownHandler = (e) => {
+                if (e.key === 'Escape' && this.dropdownOpen) {
+                    this.closeNotificationDropdown();
+                }
+            };
+            document.addEventListener('keydown', keydownHandler);
+            this.eventListeners.push({ element: document, event: 'keydown', handler: keydownHandler });
+        }
+        
+        // Cleanup method to prevent memory leaks
+        destroy() {
+            this.eventListeners.forEach(({ element, event, handler }) => {
+                element.removeEventListener(event, handler);
             });
+            this.eventListeners = [];
+            
+            // Clear polling interval
+            if (this.pollingInterval) {
+                clearInterval(this.pollingInterval);
+                this.pollingInterval = null;
+            }
         }
         
         loadNotifications() {
@@ -403,39 +645,30 @@ function initializeNotificationSystem()
         }
         
         checkAndShowNewNotifications() {
-            // Check if notifications have been shown recently to avoid spam
-            const lastShown = localStorage.getItem('lastNotificationShow');
-            const now = Date.now();
-            const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
-            
-            // Only show notifications if they haven't been shown in the last 5 minutes
-            if (!lastShown || (now - parseInt(lastShown)) > fiveMinutes) {
-                this.showCriticalNotifications();
-                localStorage.setItem('lastNotificationShow', now.toString());
-            }
+            // Only show critical notifications (not warnings) to reduce noise
+            this.showCriticalNotifications();
         }
         
         showCriticalNotifications() {
-            // Show critical and warning notifications as toasts
-            const criticalNotifications = " . json_encode(getNotifications(3, true)) . ";
+            // Show only critical notifications as toasts (limit to 2 to avoid overwhelming)
+            const criticalNotifications = " . json_encode(getNotifications(10, true)) . ";
             
-            criticalNotifications.forEach((notification, index) => {
-                if (notification.type === 'critical' || notification.type === 'warning') {
+            const criticalOnly = criticalNotifications.filter(n => n.type === 'critical').slice(0, 2);
+            
+            if (criticalOnly.length > 0) {
+                criticalOnly.forEach((notification, index) => {
                     setTimeout(() => {
                         this.showToast(notification);
-                    }, index * 1000); // Stagger the notifications
-                }
-            });
+                    }, index * 800); // Stagger by 800ms for better UX
+                });
+            }
         }
         
         // Method to manually trigger notifications (for testing)
         showTestNotifications() {
+            // Clear session flag to allow showing again
+            sessionStorage.removeItem('notificationsShownThisSession');
             this.showCriticalNotifications();
-        }
-        
-        // Method to reset notification timing (for testing or admin purposes)
-        resetNotificationTiming() {
-            localStorage.removeItem('lastNotificationShow');
         }
         
         showToast(notification) {
@@ -512,57 +745,116 @@ function initializeNotificationSystem()
             let dropdown = document.getElementById('notification-dropdown');
             
             if (dropdown) {
-                dropdown.remove();
+                this.closeNotificationDropdown();
                 return;
             }
             
-            // Create dropdown
-            const notifications = " . json_encode(getNotifications(10)) . ";
+            this.openNotificationDropdown();
+        }
+        
+        openNotificationDropdown() {
+            this.dropdownOpen = true;
+            
+            // Show loading state
+            const bell = document.getElementById('notification-bell');
+            const loadingHtml = `
+                <div id='notification-dropdown' class='absolute right-0 mt-2 w-[calc(100vw-2rem)] max-w-80 sm:w-80 sm:max-w-96 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 animate-fade-in' role='menu' aria-label='Notifications'>
+                    <div class='p-8 text-center'>
+                        <i class='fas fa-spinner fa-spin text-gray-400 text-2xl'></i>
+                        <p class='text-gray-500 dark:text-gray-400 text-sm mt-2'>Loading notifications...</p>
+                    </div>
+                </div>
+            `;
+            bell.parentElement.insertAdjacentHTML('beforeend', loadingHtml);
+            
+            // Fetch fresh notifications from server
+            this.fetchAndRenderNotifications();
+            
+            // Close dropdown when clicking outside
+            setTimeout(() => {
+                document.addEventListener('click', this.closeDropdownOnOutsideClick, true);
+            }, 100);
+        }
+        
+        async fetchAndRenderNotifications() {
+            try {
+                const response = await fetch('includes/notification_api.php?action=get_notifications&limit=10', {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to fetch notifications');
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    this.notifications = data.notifications;
+                    this.unreadCount = data.unread_count;
+                    this.renderNotificationDropdown();
+                } else {
+                    throw new Error(data.message || 'Failed to load notifications');
+                }
+            } catch (error) {
+                console.error('Error fetching notifications:', error);
+                // Fallback to static notifications
+                this.renderNotificationDropdown();
+            }
+        }
+        
+        renderNotificationDropdown() {
+            const dropdown = document.getElementById('notification-dropdown');
+            if (!dropdown) return;
+            
+            // Use fetched notifications if available, otherwise use static data
+            const notifications = this.notifications.length > 0 ? this.notifications : " . json_encode(getNotifications(10)) . ";
+            
             let notificationsHtml = '';
             
             if (notifications.length === 0) {
                 notificationsHtml = `
-                    <div class='p-6 text-center'>
-                        <i class='fas fa-bell-slash text-gray-400 text-3xl mb-3'></i>
-                        <p class='text-gray-500 text-sm'>No notifications</p>
+                    <div class='p-8 text-center'>
+                        <i class='fas fa-bell-slash text-gray-400 text-4xl mb-3'></i>
+                        <p class='text-gray-500 text-sm font-medium'>No notifications</p>
+                        <p class='text-gray-400 text-xs mt-1'>You're all caught up!</p>
                     </div>
                 `;
             } else {
-                notificationsHtml = '<div class=\"max-h-96 overflow-y-auto\">';
+                notificationsHtml = '<div class=\"max-h-[50vh] sm:max-h-80 overflow-y-auto scrollbar-thin\">';
                 notifications.forEach(notification => {
-                    const config = {
-                        'critical': { color: 'red', icon: 'fa-exclamation-triangle' },
-                        'warning': { color: 'yellow', icon: 'fa-exclamation-circle' },
-                        'info': { color: 'blue', icon: 'fa-info-circle' },
-                        'success': { color: 'green', icon: 'fa-check-circle' }
-                    }[notification.type] || { color: 'gray', icon: 'fa-bell' };
-                    
+                    const config = this.getNotificationConfig(notification.type);
                     const timeAgo = this.getTimeAgo(notification.timestamp);
-                    const readClass = notification.read ? 'bg-gray-50' : 'bg-white';
+                    const readClass = notification.read ? 'bg-gray-50 dark:bg-gray-700' : 'bg-white dark:bg-gray-800';
                     
                     notificationsHtml += `
-                        <div class='notification-item \${readClass} hover:bg-gray-100 border-b border-gray-200 p-4 cursor-pointer transition-colors duration-200'
-                             data-notification-id='\${notification.id}'>
+                        <div class='notification-item \${readClass} hover:bg-gray-100 dark:hover:bg-gray-600 border-b border-gray-200 dark:border-gray-700 p-4 cursor-pointer transition-colors duration-200'
+                             data-notification-id='\${this.escapeHtml(notification.id)}'
+                             role='menuitem'
+                             tabindex='0'>
                             <div class='flex items-start space-x-3'>
                                 <div class='flex-shrink-0'>
-                                    <div class='w-8 h-8 bg-\${config.color}-100 rounded-full flex items-center justify-center'>
-                                        <i class='fas \${config.icon} text-\${config.color}-600 text-sm'></i>
+                                    <div class='w-10 h-10 bg-\${config.color}-100 dark:bg-\${config.color}-900 rounded-full flex items-center justify-center'>
+                                        <i class='fas \${config.icon} text-\${config.color}-600 dark:text-\${config.color}-400 text-sm'></i>
                                     </div>
                                 </div>
                                 <div class='flex-1 min-w-0'>
-                                    <p class='text-sm font-medium text-gray-900'>
-                                        \${notification.title}
+                                    <p class='text-sm font-semibold text-gray-900 dark:text-white'>
+                                        \${this.escapeHtml(notification.title)}
                                     </p>
-                                    <p class='text-sm text-gray-600 mt-1'>
-                                        \${notification.message}
+                                    <p class='text-sm text-gray-600 dark:text-gray-300 mt-1 line-clamp-2'>
+                                        \${this.escapeHtml(notification.message)}
                                     </p>
-                                    <p class='text-xs text-gray-400 mt-2'>
+                                    <p class='text-xs text-gray-400 dark:text-gray-500 mt-2 flex items-center'>
+                                        <i class='far fa-clock mr-1'></i>
                                         \${timeAgo}
                                     </p>
                                 </div>
                                 \${!notification.read ? `
                                 <div class='flex-shrink-0'>
-                                    <div class='w-2 h-2 bg-\${config.color}-500 rounded-full'></div>
+                                    <div class='w-2.5 h-2.5 bg-\${config.color}-500 rounded-full animate-pulse' title='Unread'></div>
                                 </div>
                                 ` : ''}
                             </div>
@@ -573,29 +865,40 @@ function initializeNotificationSystem()
             }
             
             const dropdownHtml = `
-                <div id='notification-dropdown' class='absolute right-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 z-50 animate-fade-in'>
-                    <div class='p-4 border-b border-gray-200'>
-                        <div class='flex items-center justify-between'>
-                            <h3 class='text-lg font-semibold text-gray-900'>Notifications</h3>
-                            <span class='text-sm text-gray-500'>\${this.unreadCount} unread</span>
-                        </div>
+                <div class='p-4 border-b border-gray-200 dark:border-gray-700'>
+                    <div class='flex items-center justify-between mb-2'>
+                        <h3 class='text-lg font-semibold text-gray-900 dark:text-white'>Notifications</h3>
+                        <span class='text-sm text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full'>
+                            \${this.unreadCount} unread
+                        </span>
                     </div>
-                    \${notificationsHtml}
-                    <div class='p-4 border-t border-gray-200'>
-                        <a href='notifications.php' class='text-primary-600 hover:text-primary-700 text-sm font-medium'>
-                            View all notifications →
-                        </a>
-                    </div>
+                    \${this.unreadCount > 0 ? `
+                    <button onclick='notificationSystem.markAllAsRead()' 
+                            class='text-xs text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 font-medium flex items-center transition-colors duration-200'>
+                        <i class='fas fa-check-double mr-1'></i>
+                        Mark all as read
+                    </button>
+                    ` : ''}
+                </div>
+                \${notificationsHtml}
+                <div class='p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'>
+                    <a href='notifications.php' class='text-primary-600 dark:text-primary-400 hover:text-primary-700 dark:hover:text-primary-300 text-sm font-medium flex items-center justify-center transition-colors duration-200'>
+                        View all notifications
+                        <i class='fas fa-arrow-right ml-2 text-xs'></i>
+                    </a>
                 </div>
             `;
             
-            const bell = document.getElementById('notification-bell');
-            bell.parentElement.insertAdjacentHTML('beforeend', dropdownHtml);
-            
-            // Close dropdown when clicking outside
-            setTimeout(() => {
-                document.addEventListener('click', this.closeDropdownOnOutsideClick, true);
-            }, 100);
+            dropdown.innerHTML = dropdownHtml;
+        }
+        
+        closeNotificationDropdown() {
+            const dropdown = document.getElementById('notification-dropdown');
+            if (dropdown) {
+                dropdown.remove();
+                this.dropdownOpen = false;
+                document.removeEventListener('click', this.closeDropdownOnOutsideClick, true);
+            }
         }
         
         closeDropdownOnOutsideClick = (e) => {
@@ -603,31 +906,83 @@ function initializeNotificationSystem()
             const bell = document.getElementById('notification-bell');
             
             if (dropdown && !dropdown.contains(e.target) && !bell.contains(e.target)) {
-                dropdown.remove();
-                document.removeEventListener('click', this.closeDropdownOnOutsideClick, true);
+                this.closeNotificationDropdown();
             }
         }
         
+        getNotificationConfig(type) {
+            const configs = {
+                'critical': { color: 'red', icon: 'fa-exclamation-triangle' },
+                'high': { color: 'orange', icon: 'fa-exclamation-circle' },
+                'warning': { color: 'yellow', icon: 'fa-exclamation-circle' },
+                'medium': { color: 'yellow', icon: 'fa-info-circle' },
+                'low': { color: 'blue', icon: 'fa-check-circle' },
+                'info': { color: 'blue', icon: 'fa-info-circle' },
+                'success': { color: 'green', icon: 'fa-check-circle' }
+            };
+            return configs[type] || { color: 'gray', icon: 'fa-bell' };
+        }
+        
+        escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         markAsRead(notificationId) {
+            // Find the notification
+            const notification = this.notifications.find(n => n.id === notificationId);
+            if (!notification || notification.read) return;
+            
             // In a real implementation, this would make an AJAX call
             console.log('Marking notification as read:', notificationId);
             
-            // Update UI
+            // Update notification object
+            notification.read = true;
+            
+            // Update UI with smooth transition
             const item = document.querySelector(`[data-notification-id=\"\${notificationId}\"]`);
             if (item) {
-                item.classList.remove('bg-white');
-                item.classList.add('bg-gray-50');
+                item.classList.add('opacity-75');
                 
-                // Remove unread indicator
-                const indicator = item.querySelector('.w-2.h-2');
-                if (indicator) {
-                    indicator.remove();
-                }
+                setTimeout(() => {
+                    item.classList.remove('bg-white', 'dark:bg-gray-800');
+                    item.classList.add('bg-gray-50', 'dark:bg-gray-700');
+                    
+                    // Remove unread indicator with fade
+                    const indicator = item.querySelector('.w-2\\\\.5');
+                    if (indicator) {
+                        indicator.style.transition = 'opacity 0.3s';
+                        indicator.style.opacity = '0';
+                        setTimeout(() => indicator.remove(), 300);
+                    }
+                    
+                    item.classList.remove('opacity-75');
+                }, 150);
             }
             
             // Update unread count
             this.unreadCount = Math.max(0, this.unreadCount - 1);
             this.updateBellCount();
+            
+            // Show subtle feedback
+            this.showFeedback('Notification marked as read', 'success');
+        }
+        
+        showFeedback(message, type = 'info') {
+            // Create a small feedback toast
+            const feedback = document.createElement('div');
+            feedback.className = 'fixed bottom-4 right-4 z-50 bg-gray-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg opacity-0 transition-opacity duration-300';
+            feedback.textContent = message;
+            
+            document.body.appendChild(feedback);
+            
+            setTimeout(() => feedback.classList.add('opacity-100'), 10);
+            
+            setTimeout(() => {
+                feedback.classList.remove('opacity-100');
+                setTimeout(() => feedback.remove(), 300);
+            }, 2000);
         }
         
         updateBellCount() {
@@ -648,6 +1003,65 @@ function initializeNotificationSystem()
                 if (countElement) {
                     countElement.remove();
                 }
+            }
+        }
+        
+        async markAllAsRead() {
+            if (this.unreadCount === 0) return;
+            
+            try {
+                // Make API call to mark all as read
+                const response = await fetch('includes/notification_api.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'Accept': 'application/json'
+                    },
+                    body: 'action=mark_all_as_read'
+                });
+                
+                if (!response.ok) {
+                    throw new Error('Failed to mark all as read');
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Update all notifications to read
+                    this.notifications.forEach(notification => {
+                        notification.read = true;
+                    });
+                    
+                    // Update unread count
+                    this.unreadCount = 0;
+                    this.updateBellCount();
+                    
+                    // Update UI - remove all unread indicators
+                    const unreadIndicators = document.querySelectorAll('.notification-item .w-2\\\\.5');
+                    unreadIndicators.forEach(indicator => {
+                        indicator.style.transition = 'opacity 0.3s';
+                        indicator.style.opacity = '0';
+                        setTimeout(() => indicator.remove(), 300);
+                    });
+                    
+                    // Update all notification items background
+                    const notificationItems = document.querySelectorAll('.notification-item');
+                    notificationItems.forEach(item => {
+                        item.classList.remove('bg-white', 'dark:bg-gray-800');
+                        item.classList.add('bg-gray-50', 'dark:bg-gray-700');
+                    });
+                    
+                    // Re-render dropdown to update header
+                    this.renderNotificationDropdown();
+                    
+                    // Show success feedback
+                    this.showFeedback('All notifications marked as read', 'success');
+                } else {
+                    throw new Error(data.message || 'Failed to mark all as read');
+                }
+            } catch (error) {
+                console.error('Error marking all as read:', error);
+                this.showFeedback('Failed to mark all as read', 'error');
             }
         }
         
@@ -677,5 +1091,59 @@ function initializeNotificationSystem()
     document.addEventListener('DOMContentLoaded', () => {
         window.notificationSystem = new NotificationSystem();
     });
-    </script>";
+    </script>
+    <style>
+        /* Notification dropdown scrollbar styling */
+        #notification-dropdown .overflow-y-auto::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        #notification-dropdown .overflow-y-auto::-webkit-scrollbar-track {
+            background: rgba(243, 244, 246, 0.5);
+            border-radius: 4px;
+        }
+        
+        #notification-dropdown .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: rgba(156, 163, 175, 0.6);
+            border-radius: 4px;
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+        
+        #notification-dropdown .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: rgba(107, 114, 128, 0.8);
+            background-clip: padding-box;
+        }
+        
+        /* Dark mode scrollbar */
+        .dark #notification-dropdown .overflow-y-auto::-webkit-scrollbar-track {
+            background: rgba(31, 41, 55, 0.5);
+        }
+        
+        .dark #notification-dropdown .overflow-y-auto::-webkit-scrollbar-thumb {
+            background: rgba(75, 85, 99, 0.6);
+            background-clip: padding-box;
+        }
+        
+        .dark #notification-dropdown .overflow-y-auto::-webkit-scrollbar-thumb:hover {
+            background: rgba(107, 114, 128, 0.8);
+            background-clip: padding-box;
+        }
+        
+        /* Smooth scrolling */
+        #notification-dropdown .overflow-y-auto {
+            scroll-behavior: smooth;
+            overscroll-behavior: contain;
+        }
+        
+        /* Firefox scrollbar */
+        #notification-dropdown .overflow-y-auto {
+            scrollbar-width: thin;
+            scrollbar-color: rgba(156, 163, 175, 0.6) rgba(243, 244, 246, 0.5);
+        }
+        
+        .dark #notification-dropdown .overflow-y-auto {
+            scrollbar-color: rgba(75, 85, 99, 0.6) rgba(31, 41, 55, 0.5);
+        }
+    </style>";
 }

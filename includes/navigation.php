@@ -69,6 +69,32 @@ $navigationSections = [
             ]
         ]
     ],
+    'learning' => [
+        'title' => 'Learning & Analysis',
+        'items' => [
+            'reports' => [
+                'title' => 'Reports',
+                'icon' => 'fas fa-chart-bar',
+                'url' => 'reports.php',
+                'roles' => ['admin', 'farmer', 'student'],
+                'description' => 'Analytics and reporting'
+            ],
+            'data_analytics' => [
+                'title' => 'Data Analytics',
+                'icon' => 'fas fa-chart-line',
+                'url' => 'data_analytics.php',
+                'roles' => ['admin', 'farmer', 'student'],
+                'description' => 'Advanced data visualization and trends'
+            ],
+            'learning_resources' => [
+                'title' => 'Learning Resources',
+                'icon' => 'fas fa-graduation-cap',
+                'url' => 'learning_resources.php',
+                'roles' => ['admin', 'farmer', 'student'],
+                'description' => 'Educational materials and guides'
+            ]
+        ]
+    ],
     'management' => [
         'title' => 'Management',
         'items' => [
@@ -79,19 +105,24 @@ $navigationSections = [
                 'roles' => ['admin'],
                 'description' => 'User account management'
             ],
-            'reports' => [
-                'title' => 'Reports',
-                'icon' => 'fas fa-chart-bar',
-                'url' => 'reports.php',
-                'roles' => ['admin', 'farmer', 'student'],
-                'description' => 'Analytics and reporting'
-            ],
             'settings' => [
                 'title' => 'Settings',
                 'icon' => 'fas fa-cog',
                 'url' => 'settings.php',
                 'roles' => ['admin'],
                 'description' => 'System configuration and preferences'
+            ]
+        ]
+    ],
+    'support' => [
+        'title' => 'Support',
+        'items' => [
+            'help' => [
+                'title' => 'Help & Documentation',
+                'icon' => 'fas fa-question-circle',
+                'url' => 'help.php',
+                'roles' => ['admin', 'farmer', 'student'],
+                'description' => 'User guides and FAQ'
             ]
         ]
     ]
@@ -140,9 +171,7 @@ function getRoleBadgeClasses($role)
                 <div class="flex items-center flex-shrink-0 px-6 mb-8">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">
-                            <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                                <i class="fas fa-seedling text-white text-lg"></i>
-                            </div>
+                            <img src="includes/sagay.png" alt="Sagay Eco-Farm Logo" class="w-10 h-10 object-contain rounded-lg">
                         </div>
                         <div class="ml-3">
                             <h1 class="text-xl font-bold text-white">Sagay Eco-Farm</h1>
@@ -202,7 +231,7 @@ function getRoleBadgeClasses($role)
     <!-- Mobile Sidebar Overlay -->
     <div class="lg:hidden fixed inset-0 z-40 hidden" id="mobile-sidebar-overlay">
         <div class="fixed inset-0 bg-gray-600 bg-opacity-75" onclick="toggleMobileSidebar()"></div>
-        <div class="relative flex-1 flex flex-col max-w-xs w-full bg-gradient-to-b from-gray-900 to-gray-800 dark:from-gray-950 dark:to-gray-900">
+        <div class="relative flex flex-col max-w-xs w-full h-full bg-gradient-to-b from-gray-900 to-gray-800 dark:from-gray-950 dark:to-gray-900">
             <!-- Mobile Sidebar Content (same as desktop but with close button) -->
             <div class="absolute top-0 right-0 -mr-12 pt-2">
                 <button type="button"
@@ -218,9 +247,7 @@ function getRoleBadgeClasses($role)
                 <div class="flex items-center flex-shrink-0 px-6 mb-8">
                     <div class="flex items-center">
                         <div class="flex-shrink-0">
-                            <div class="w-10 h-10 bg-gradient-to-br from-green-400 to-green-600 rounded-xl flex items-center justify-center shadow-lg">
-                                <i class="fas fa-seedling text-white text-lg"></i>
-                            </div>
+                            <img src="includes/sagay.png" alt="Sagay Eco-Farm Logo" class="w-10 h-10 object-contain rounded-lg">
                         </div>
                         <div class="ml-3">
                             <h1 class="text-xl font-bold text-white">Farm Monitor</h1>
@@ -319,22 +346,28 @@ function getRoleBadgeClasses($role)
                 <div class="flex items-center">
                     <!-- Mobile Menu Button -->
                     <button type="button"
-                        class="lg:hidden text-secondary-500 hover:text-secondary-600 focus:outline-none focus:text-secondary-600 mr-4"
+                        class="lg:hidden text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200 focus:outline-none mr-4"
                         onclick="toggleMobileSidebar()">
                         <i class="fas fa-bars text-xl"></i>
                     </button>
 
                     <!-- Page Title (Desktop) -->
                     <div class="hidden lg:block">
-                        <h1 class="text-heading-lg text-secondary-900 dark:text-white font-display">
+                        <h1 class="text-xl font-bold text-gray-900 dark:text-white">
                             <?php
                             $pageNames = [
                                 'dashboard' => 'Dashboard',
                                 'sensors' => 'Sensors',
                                 'pest_detection' => 'Pest Detection',
-                                'user_management' => 'User Management',
+                                'notifications' => 'Notifications',
                                 'reports' => 'Reports',
-                                'profile' => 'Profile'
+                                'data_analytics' => 'Data Analytics',
+                                'learning_resources' => 'Learning Resources',
+                                'user_management' => 'User Management',
+                                'settings' => 'Settings',
+                                'help' => 'Help & Documentation',
+                                'profile' => 'Profile',
+                                'camera_management' => 'Camera Management'
                             ];
                             echo $pageNames[$currentPage] ?? 'Dashboard';
                             ?>
@@ -343,22 +376,21 @@ function getRoleBadgeClasses($role)
 
                     <!-- Mobile Logo -->
                     <div class="lg:hidden flex items-center">
-                        <div class="w-8 h-8 bg-gradient-to-br from-primary-400 to-primary-600 rounded-lg flex items-center justify-center">
-                            <i class="fas fa-seedling text-white text-sm"></i>
+                        <div class="flex-shrink-0">
+                            <img src="includes/sagay.png" alt="Sagay Eco-Farm Logo" class="w-10 h-10 object-contain rounded-lg">
                         </div>
-                        <h1 class="ml-2 text-lg font-semibold text-secondary-900 dark:text-white">Farm Monitor</h1>
                     </div>
                 </div>
 
                 <!-- Right Side - Search, Actions, User Menu -->
-                <div class="flex items-center space-x-4">
+                <div class="flex items-center space-x-2 lg:space-x-4">
                     <!-- Action Buttons -->
-                    <div class="flex items-center space-x-2">
+                    <div class="flex items-center space-x-1 lg:space-x-2">
 
                         <!-- Theme Toggle Button -->
                         <button type="button"
                             id="theme-toggle"
-                            class="p-2 text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100 dark:text-secondary-400 dark:hover:text-secondary-200 dark:hover:bg-secondary-800 rounded-lg transition-colors duration-200"
+                            class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 flex items-center justify-center"
                             onclick="toggleTheme()"
                             title="Toggle theme">
                             <i class="fas fa-moon text-lg"></i>
@@ -369,7 +401,7 @@ function getRoleBadgeClasses($role)
                         if (function_exists('generateNotificationBell')) {
                             echo generateNotificationBell();
                         } else {
-                            echo '<button type="button" class="p-2 text-secondary-500 hover:text-secondary-700 hover:bg-secondary-100 dark:text-secondary-400 dark:hover:text-secondary-200 dark:hover:bg-secondary-800 rounded-lg transition-colors duration-200 relative" title="Notifications">
+                            echo '<button type="button" class="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 dark:text-gray-400 dark:hover:text-gray-200 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200 relative flex items-center justify-center" title="Notifications">
                                 <i class="fas fa-bell text-lg"></i>
                             </button>';
                         }
@@ -378,7 +410,7 @@ function getRoleBadgeClasses($role)
                         <!-- User Profile Dropdown -->
                         <div class="relative">
                             <button type="button"
-                                class="flex items-center space-x-3 p-2 text-secondary-700 hover:bg-secondary-100 rounded-lg transition-colors duration-200"
+                                class="flex items-center space-x-3 p-2 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors duration-200"
                                 id="user-menu-button"
                                 onclick="toggleUserMenu()"
                                 aria-expanded="false"
@@ -391,14 +423,14 @@ function getRoleBadgeClasses($role)
                                 </div>
                                 <!-- User Info (Desktop) -->
                                 <div class="hidden lg:block text-left">
-                                    <div class="text-body-md font-medium text-secondary-900">
+                                    <div class="text-sm font-semibold text-gray-900 dark:text-white">
                                         <?php echo htmlspecialchars($currentUser['username']); ?>
                                     </div>
-                                    <div class="text-body-sm text-secondary-500">
+                                    <div class="text-xs text-gray-600 dark:text-gray-400">
                                         <?php echo ucfirst($currentUser['role']); ?>
                                     </div>
                                 </div>
-                                <i class="fas fa-chevron-down text-xs text-secondary-400"></i>
+                                <i class="fas fa-chevron-down text-xs text-gray-500 dark:text-gray-400"></i>
                             </button>
 
                             <!-- User Dropdown Menu -->
