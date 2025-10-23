@@ -45,12 +45,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             case 'update_sensor_interval':
                 // Handle sensor logging interval update
                 try {
-                    $intervalMinutes = isset($_POST['sensor_interval']) ? intval($_POST['sensor_interval']) : 0;
+                    $intervalMinutes = isset($_POST['sensor_interval']) ? floatval($_POST['sensor_interval']) : 0;
                     
-                    if ($intervalMinutes < 5 || $intervalMinutes > 1440) {
-                        throw new Exception('Interval must be between 5 minutes and 24 hours');
-                    }
-
                     // Validate interval value
                     if (!is_numeric($intervalMinutes)) {
                         throw new Exception('Interval must be a numeric value');
@@ -58,15 +54,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
                     // Allow 5 seconds for testing, or standard intervals
                     $allowedIntervals = [0.0833, 5, 15, 30, 60, 120, 240]; // 0.0833 = 5 seconds in minutes
-                    $intervalInMinutes = $intervalMinutes >= 1 ? $intervalMinutes : 0.0833;
                     
-                    if (!in_array($intervalInMinutes, $allowedIntervals)) {
+                    if (!in_array($intervalMinutes, $allowedIntervals)) {
                         throw new Exception('Invalid interval selected. Please choose from available options.');
                     }
 
                     require_once 'includes/arduino-api.php';
                     $arduino = new ArduinoBridge();
-                    $result = $arduino->setLoggingInterval($intervalInMinutes, $currentUserId);
+                    $result = $arduino->setLoggingInterval($intervalMinutes, $currentUserId);
 
                     if (!$result['success']) {
                         throw new Exception($result['message']);
