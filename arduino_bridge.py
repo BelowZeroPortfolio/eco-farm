@@ -19,7 +19,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Arduino configuration
-ARDUINO_PORT = "COM4"  # Change this to your Arduino port
+ARDUINO_PORT = "COM3"  # Change this to your Arduino port
 BAUD_RATE = 9600
 TIMEOUT = 1
 
@@ -47,15 +47,22 @@ def connect_arduino():
 def parse_arduino_data(line):
     """
     Parse Arduino data from DHT + Soil sensor
-    Expected format: "Temp: 24.5 °C | Humidity: 65.2 % | Soil Moisture: 45 %"
+    Expected format: "Temp: 24.5 °C | Humidity: 65.2 % | Soil Moisture: 45 % [SIMULATED]"
     """
     try:
         line = line.strip()
-        if not line or line == "DHT read error!":
+        
+        # Skip empty lines and error messages
+        if not line or "DHT read error" in line or "WARNING:" in line or "DEBUG" in line:
+            return None
+            
+        # Skip system messages
+        if any(msg in line for msg in ["Arduino Farm Monitor", "DHT22 + Soil", "====", "Initializing", "detected", "ready", "starting"]):
             return None
             
         # Parse the formatted string
         data = {}
+        is_simulated = "[SIMULATED]" in line
         
         # Extract temperature
         if "Temp:" in line:
@@ -89,6 +96,10 @@ def parse_arduino_data(line):
                     data['soil_moisture'] = float(soil_str)
                 except ValueError:
                     pass
+        
+        # Add simulation status
+        if data and is_simulated:
+            logger.info("📊 Using simulated sensor data (DHT22 not connected)")
         
         return data if data else None
             

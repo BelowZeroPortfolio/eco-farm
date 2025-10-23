@@ -88,7 +88,57 @@ if (isset($_GET['export']) && in_array($_GET['export'], ['csv', 'pdf'])) {
 }
 
 /**
- * Get sensor data report for date range
+ * Get sensor thresholds from database
+ */
+function getSensorThresholds() {
+    try {
+        $pdo = getDatabaseConnection();
+        
+        $stmt = $pdo->prepare("
+            SELECT 
+                sensor_type,
+                AVG(alert_threshold_min) as min_threshold,
+                AVG(alert_threshold_max) as max_threshold
+            FROM sensors
+            WHERE alert_threshold_min IS NOT NULL 
+            AND alert_threshold_max IS NOT NULL
+            GROUP BY sensor_type
+        ");
+        $stmt->execute();
+        $results = $stmt->fetchAll();
+        
+        // Convert to associative array
+        $thresholds = [];
+        foreach ($results as $row) {
+            $thresholds[$row['sensor_type']] = [
+                'min' => floatval($row['min_threshold']),
+                'max' => floatval($row['max_threshold'])
+            ];
+        }
+        
+        // Fallback to defaults if no thresholds in database
+        if (empty($thresholds)) {
+            return [
+                'temperature' => ['min' => 20, 'max' => 28],
+                'humidity' => ['min' => 60, 'max' => 80],
+                'soil_moisture' => ['min' => 40, 'max' => 60]
+            ];
+        }
+        
+        return $thresholds;
+    } catch (Exception $e) {
+        error_log("Failed to get sensor thresholds: " . $e->getMessage());
+        // Return defaults on error
+        return [
+            'temperature' => ['min' => 20, 'max' => 28],
+            'humidity' => ['min' => 60, 'max' => 80],
+            'soil_moisture' => ['min' => 40, 'max' => 60]
+        ];
+    }
+}
+
+/**
+ * Get sensor data report for date range with advanced trend analysis
  */
 function getSensorReport($startDate, $endDate)
 {
@@ -99,9 +149,12 @@ function getSensorReport($startDate, $endDate)
                 s.sensor_name,
                 s.sensor_type,
                 s.location,
+                s.alert_threshold_min,
+                s.alert_threshold_max,
                 AVG(sr.value) as avg_value,
                 MIN(sr.value) as min_value,
                 MAX(sr.value) as max_value,
+                STDDEV(sr.value) as std_dev,
                 COUNT(sr.id) as reading_count,
                 sr.unit,
                 DATE(sr.recorded_at) as date
@@ -109,10 +162,58 @@ function getSensorReport($startDate, $endDate)
             JOIN sensor_readings sr ON s.id = sr.sensor_id
             WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
             GROUP BY s.id, DATE(sr.recorded_at)
-            ORDER BY sr.recorded_at DESC, s.sensor_type, s.sensor_name
+            ORDER BY sr.recorded_at ASC, s.sensor_type, s.sensor_name
         ");
         $stmt->execute([$startDate, $endDate]);
-        return $stmt->fetchAll();
+        $data = $stmt->fetchAll();
+        
+        // Get thresholds from database
+        $thresholds = getSensorThresholds();
+        
+        // Calculate advanced trends and critical alerts
+        $dataWithTrends = [];
+        $sensorHistory = [];
+        
+        foreach ($data as $row) {
+            $sensorKey = $row['sensor_name'] . '_' . $row['sensor_type'];
+            
+            // Store historical values for trend calculation
+            if (!isset($sensorHistory[$sensorKey])) {
+                $sensorHistory[$sensorKey] = [];
+            }
+            $sensorHistory[$sensorKey][] = [
+                'value' => $row['avg_value'],
+                'date' => $row['date'],
+                'std_dev' => $row['std_dev']
+            ];
+            
+            // Calculate advanced trend metrics
+            $trendAnalysis = calculateAdvancedTrend($sensorHistory[$sensorKey], $row['sensor_type']);
+            
+            // Use sensor-specific thresholds if available, otherwise use type defaults
+            $minThreshold = $row['alert_threshold_min'] ?? $thresholds[$row['sensor_type']]['min'] ?? null;
+            $maxThreshold = $row['alert_threshold_max'] ?? $thresholds[$row['sensor_type']]['max'] ?? null;
+            
+            // Check if value is in critical range with enhanced detection
+            $criticalAnalysis = analyzeCriticalStatus(
+                $row['avg_value'],
+                $minThreshold,
+                $maxThreshold,
+                $row['sensor_type'],
+                $trendAnalysis['trend']
+            );
+            
+            // Detect anomalies
+            $anomaly = detectAnomaly($sensorHistory[$sensorKey], $row['avg_value']);
+            
+            // Merge all analysis data
+            $row = array_merge($row, $trendAnalysis, $criticalAnalysis, ['anomaly' => $anomaly]);
+            
+            $dataWithTrends[] = $row;
+        }
+        
+        // Reverse to show most recent first
+        return array_reverse($dataWithTrends);
     } catch (Exception $e) {
         error_log("Failed to get sensor report: " . $e->getMessage());
         return [];
@@ -120,7 +221,274 @@ function getSensorReport($startDate, $endDate)
 }
 
 /**
- * Get pest data report for date range with enhanced details
+ * Calculate advanced trend metrics including velocity and acceleration
+ */
+function calculateAdvancedTrend($history, $sensorType)
+{
+    $count = count($history);
+    
+    if ($count < 2) {
+        return [
+            'trend' => 'stable',
+            'trend_percent' => 0,
+            'trend_velocity' => 0,
+            'trend_acceleration' => 0,
+            'trend_strength' => 'weak',
+            'forecast_24h' => null,
+            'trend_description' => 'Insufficient data for trend analysis'
+        ];
+    }
+    
+    $current = $history[$count - 1]['value'];
+    $previous = $history[$count - 2]['value'];
+    $change = $current - $previous;
+    $trendPercent = $previous != 0 ? ($change / $previous) * 100 : 0;
+    
+    // Calculate velocity (rate of change)
+    $velocity = $change;
+    
+    // Calculate acceleration (change in velocity) if we have 3+ points
+    $acceleration = 0;
+    if ($count >= 3) {
+        $prevChange = $history[$count - 2]['value'] - $history[$count - 3]['value'];
+        $acceleration = $change - $prevChange;
+    }
+    
+    // Determine trend direction with dynamic thresholds based on sensor type
+    $thresholds = [
+        'temperature' => 2,
+        'humidity' => 3,
+        'soil_moisture' => 3,
+        'default' => 5
+    ];
+    $threshold = $thresholds[$sensorType] ?? $thresholds['default'];
+    
+    $trend = 'stable';
+    if (abs($trendPercent) > $threshold) {
+        $trend = $trendPercent > 0 ? 'rising' : 'falling';
+    }
+    
+    // Determine trend strength
+    $trendStrength = 'weak';
+    if (abs($trendPercent) > $threshold * 3) {
+        $trendStrength = 'strong';
+    } elseif (abs($trendPercent) > $threshold * 1.5) {
+        $trendStrength = 'moderate';
+    }
+    
+    // Simple linear forecast for next 24 hours
+    $forecast24h = null;
+    if ($count >= 3) {
+        $avgVelocity = 0;
+        for ($i = 1; $i < min($count, 7); $i++) {
+            $avgVelocity += ($history[$count - $i]['value'] - $history[$count - $i - 1]['value']);
+        }
+        $avgVelocity /= min($count - 1, 7);
+        $forecast24h = $current + $avgVelocity;
+    }
+    
+    // Generate trend description
+    $trendDescription = generateTrendDescription($trend, $trendPercent, $trendStrength, $acceleration);
+    
+    return [
+        'trend' => $trend,
+        'trend_percent' => $trendPercent,
+        'trend_velocity' => $velocity,
+        'trend_acceleration' => $acceleration,
+        'trend_strength' => $trendStrength,
+        'forecast_24h' => $forecast24h,
+        'trend_description' => $trendDescription
+    ];
+}
+
+/**
+ * Generate human-readable trend description
+ */
+function generateTrendDescription($trend, $percent, $strength, $acceleration)
+{
+    $direction = '';
+    if ($trend === 'rising') {
+        $direction = $acceleration > 0 ? 'rapidly increasing' : 'increasing';
+    } elseif ($trend === 'falling') {
+        $direction = $acceleration < 0 ? 'rapidly decreasing' : 'decreasing';
+    } else {
+        return 'Stable with minimal variation';
+    }
+    
+    $magnitude = abs($percent);
+    if ($magnitude > 20) {
+        return ucfirst($direction) . ' significantly (' . number_format($magnitude, 1) . '%)';
+    } elseif ($magnitude > 10) {
+        return ucfirst($direction) . ' moderately (' . number_format($magnitude, 1) . '%)';
+    } else {
+        return ucfirst($direction) . ' slightly (' . number_format($magnitude, 1) . '%)';
+    }
+}
+
+/**
+ * Analyze critical status with enhanced detection and urgency scoring
+ */
+function analyzeCriticalStatus($value, $minThreshold, $maxThreshold, $sensorType, $trend)
+{
+    $isCritical = false;
+    $criticalReason = '';
+    $urgencyScore = 0;
+    $recommendation = '';
+    
+    if (!$minThreshold || !$maxThreshold) {
+        return [
+            'is_critical' => false,
+            'critical_reason' => '',
+            'urgency_score' => 0,
+            'recommendation' => 'Configure thresholds for monitoring'
+        ];
+    }
+    
+    $min = $minThreshold;
+    $max = $maxThreshold;
+    $range = $max - $min;
+    $warningBuffer = $range * 0.2;
+    $criticalBuffer = $range * 0.5;
+    
+    // Check critical high
+    if ($value > $max + $criticalBuffer) {
+        $isCritical = true;
+        $criticalReason = 'Critical High';
+        $urgencyScore = 90 + min(10, ($value - ($max + $criticalBuffer)) / $range * 10);
+        $recommendation = getCriticalRecommendation($sensorType, 'high', 'critical');
+    }
+    // Check warning high
+    elseif ($value > $max + $warningBuffer) {
+        $isCritical = true;
+        $criticalReason = 'Warning High';
+        $urgencyScore = 60 + (($value - ($max + $warningBuffer)) / $criticalBuffer * 30);
+        $recommendation = getCriticalRecommendation($sensorType, 'high', 'warning');
+    }
+    // Check critical low
+    elseif ($value < $min - $criticalBuffer) {
+        $isCritical = true;
+        $criticalReason = 'Critical Low';
+        $urgencyScore = 90 + min(10, (($min - $criticalBuffer) - $value) / $range * 10);
+        $recommendation = getCriticalRecommendation($sensorType, 'low', 'critical');
+    }
+    // Check warning low
+    elseif ($value < $min - $warningBuffer) {
+        $isCritical = true;
+        $criticalReason = 'Warning Low';
+        $urgencyScore = 60 + ((($min - $warningBuffer) - $value) / $criticalBuffer * 30);
+        $recommendation = getCriticalRecommendation($sensorType, 'low', 'warning');
+    }
+    // Check if trending towards critical
+    elseif ($trend === 'rising' && $value > $max) {
+        $isCritical = true;
+        $criticalReason = 'Trending Critical';
+        $urgencyScore = 50;
+        $recommendation = 'Monitor closely - value trending towards critical levels';
+    } elseif ($trend === 'falling' && $value < $min) {
+        $isCritical = true;
+        $criticalReason = 'Trending Critical';
+        $urgencyScore = 50;
+        $recommendation = 'Monitor closely - value trending towards critical levels';
+    }
+    
+    return [
+        'is_critical' => $isCritical,
+        'critical_reason' => $criticalReason,
+        'urgency_score' => round($urgencyScore),
+        'recommendation' => $recommendation
+    ];
+}
+
+/**
+ * Get specific recommendations based on sensor type and critical condition
+ */
+function getCriticalRecommendation($sensorType, $direction, $severity)
+{
+    $recommendations = [
+        'temperature' => [
+            'high' => [
+                'critical' => 'URGENT: Activate cooling systems immediately. Check ventilation and shade coverage.',
+                'warning' => 'Increase ventilation and monitor temperature closely. Consider misting systems.'
+            ],
+            'low' => [
+                'critical' => 'URGENT: Activate heating systems. Protect crops from frost damage.',
+                'warning' => 'Prepare heating systems. Monitor for continued temperature drop.'
+            ]
+        ],
+        'humidity' => [
+            'high' => [
+                'critical' => 'URGENT: High humidity risk - increase air circulation to prevent fungal growth.',
+                'warning' => 'Improve ventilation to reduce humidity levels.'
+            ],
+            'low' => [
+                'critical' => 'URGENT: Very low humidity - activate misting/irrigation systems immediately.',
+                'warning' => 'Increase irrigation frequency to raise humidity levels.'
+            ]
+        ],
+        'soil_moisture' => [
+            'high' => [
+                'critical' => 'URGENT: Soil oversaturated - stop irrigation and improve drainage.',
+                'warning' => 'Reduce irrigation frequency to prevent waterlogging.'
+            ],
+            'low' => [
+                'critical' => 'URGENT: Soil critically dry - irrigate immediately to prevent crop stress.',
+                'warning' => 'Increase irrigation frequency to maintain optimal soil moisture.'
+            ]
+        ]
+    ];
+    
+    return $recommendations[$sensorType][$direction][$severity] ?? 'Take corrective action based on sensor readings';
+}
+
+/**
+ * Detect anomalies in sensor data
+ */
+function detectAnomaly($history, $currentValue)
+{
+    $count = count($history);
+    
+    if ($count < 5) {
+        return [
+            'is_anomaly' => false,
+            'anomaly_type' => null,
+            'anomaly_score' => 0
+        ];
+    }
+    
+    // Calculate mean and standard deviation of recent history
+    $values = array_column($history, 'value');
+    $recentValues = array_slice($values, -7); // Last 7 readings
+    $mean = array_sum($recentValues) / count($recentValues);
+    
+    $variance = 0;
+    foreach ($recentValues as $val) {
+        $variance += pow($val - $mean, 2);
+    }
+    $stdDev = sqrt($variance / count($recentValues));
+    
+    // Check if current value is an outlier (beyond 2 standard deviations)
+    $zScore = $stdDev > 0 ? abs(($currentValue - $mean) / $stdDev) : 0;
+    
+    $isAnomaly = $zScore > 2;
+    $anomalyType = null;
+    
+    if ($isAnomaly) {
+        if ($currentValue > $mean) {
+            $anomalyType = 'spike';
+        } else {
+            $anomalyType = 'drop';
+        }
+    }
+    
+    return [
+        'is_anomaly' => $isAnomaly,
+        'anomaly_type' => $anomalyType,
+        'anomaly_score' => round($zScore * 10)
+    ];
+}
+
+/**
+ * Get pest data report for date range with enhanced critical alert analysis
  */
 function getPestReport($startDate, $endDate)
 {
@@ -144,18 +512,241 @@ function getPestReport($startDate, $endDate)
                 c.camera_name,
                 c.location as camera_location,
                 COUNT(*) OVER (PARTITION BY pa.pest_type) as type_count,
-                COUNT(*) OVER (PARTITION BY pa.severity) as severity_count
+                COUNT(*) OVER (PARTITION BY pa.severity) as severity_count,
+                TIMESTAMPDIFF(HOUR, pa.detected_at, NOW()) as hours_since_detection
             FROM pest_alerts pa
             LEFT JOIN cameras c ON pa.camera_id = c.id
             WHERE DATE(pa.detected_at) BETWEEN ? AND ?
             ORDER BY pa.detected_at DESC
         ");
         $stmt->execute([$startDate, $endDate]);
-        return $stmt->fetchAll();
+        $data = $stmt->fetchAll();
+        
+        // Enhance each alert with critical analysis
+        $enhancedData = [];
+        $pestHistory = [];
+        
+        foreach ($data as $row) {
+            // Track pest occurrence patterns
+            $pestKey = $row['pest_type'] . '_' . $row['location'];
+            if (!isset($pestHistory[$pestKey])) {
+                $pestHistory[$pestKey] = [];
+            }
+            $pestHistory[$pestKey][] = $row;
+            
+            // Calculate urgency score
+            $urgencyAnalysis = calculatePestUrgency(
+                $row['severity'],
+                $row['status'],
+                $row['hours_since_detection'],
+                $row['confidence_score'],
+                count($pestHistory[$pestKey])
+            );
+            
+            // Detect outbreak patterns
+            $outbreakAnalysis = detectPestOutbreak($pestHistory[$pestKey], $row['pest_type']);
+            
+            // Generate action priority
+            $actionPriority = determinePestActionPriority(
+                $row['severity'],
+                $row['status'],
+                $urgencyAnalysis['urgency_score'],
+                $outbreakAnalysis['is_outbreak']
+            );
+            
+            // Merge all analysis
+            $row = array_merge($row, $urgencyAnalysis, $outbreakAnalysis, ['action_priority' => $actionPriority]);
+            
+            $enhancedData[] = $row;
+        }
+        
+        return $enhancedData;
     } catch (Exception $e) {
         error_log("Failed to get pest report: " . $e->getMessage());
         return [];
     }
+}
+
+/**
+ * Calculate pest alert urgency score
+ */
+function calculatePestUrgency($severity, $status, $hoursSince, $confidence, $occurrenceCount)
+{
+    $urgencyScore = 0;
+    $urgencyLevel = 'low';
+    $urgencyReason = [];
+    
+    // Base score from severity
+    $severityScores = [
+        'critical' => 80,
+        'high' => 60,
+        'medium' => 40,
+        'low' => 20
+    ];
+    $urgencyScore += $severityScores[$severity] ?? 20;
+    
+    // Adjust for status
+    if ($status === 'new') {
+        $urgencyScore += 15;
+        $urgencyReason[] = 'Unaddressed alert';
+    } elseif ($status === 'acknowledged') {
+        $urgencyScore += 5;
+    } elseif ($status === 'resolved') {
+        $urgencyScore -= 30;
+    }
+    
+    // Time factor - older unresolved alerts are more urgent
+    if ($status !== 'resolved') {
+        if ($hoursSince > 48) {
+            $urgencyScore += 20;
+            $urgencyReason[] = 'Pending for ' . round($hoursSince / 24, 1) . ' days';
+        } elseif ($hoursSince > 24) {
+            $urgencyScore += 10;
+            $urgencyReason[] = 'Pending for over 24 hours';
+        }
+    }
+    
+    // Confidence factor
+    if ($confidence >= 90) {
+        $urgencyScore += 10;
+        $urgencyReason[] = 'High confidence detection';
+    }
+    
+    // Recurrence factor
+    if ($occurrenceCount > 3) {
+        $urgencyScore += 15;
+        $urgencyReason[] = 'Recurring pest issue';
+    } elseif ($occurrenceCount > 1) {
+        $urgencyScore += 5;
+    }
+    
+    // Cap at 100
+    $urgencyScore = min(100, $urgencyScore);
+    
+    // Determine urgency level
+    if ($urgencyScore >= 80) {
+        $urgencyLevel = 'critical';
+    } elseif ($urgencyScore >= 60) {
+        $urgencyLevel = 'high';
+    } elseif ($urgencyScore >= 40) {
+        $urgencyLevel = 'medium';
+    }
+    
+    return [
+        'urgency_score' => round($urgencyScore),
+        'urgency_level' => $urgencyLevel,
+        'urgency_reason' => implode('; ', $urgencyReason)
+    ];
+}
+
+/**
+ * Detect pest outbreak patterns
+ */
+function detectPestOutbreak($pestHistory, $pestType)
+{
+    $count = count($pestHistory);
+    
+    if ($count < 3) {
+        return [
+            'is_outbreak' => false,
+            'outbreak_severity' => null,
+            'outbreak_trend' => 'stable',
+            'outbreak_message' => null
+        ];
+    }
+    
+    // Check frequency - 3+ detections in short time = potential outbreak
+    $recentCount = 0;
+    $now = time();
+    foreach ($pestHistory as $alert) {
+        $alertTime = strtotime($alert['detected_at']);
+        $hoursDiff = ($now - $alertTime) / 3600;
+        if ($hoursDiff <= 72) { // Last 3 days
+            $recentCount++;
+        }
+    }
+    
+    $isOutbreak = $recentCount >= 3;
+    $outbreakSeverity = null;
+    $outbreakTrend = 'stable';
+    $outbreakMessage = null;
+    
+    if ($isOutbreak) {
+        // Determine outbreak severity
+        if ($recentCount >= 5) {
+            $outbreakSeverity = 'severe';
+            $outbreakMessage = "OUTBREAK ALERT: {$recentCount} detections of {$pestType} in 72 hours - immediate intervention required";
+        } else {
+            $outbreakSeverity = 'moderate';
+            $outbreakMessage = "Outbreak Warning: Multiple {$pestType} detections - monitor and prepare treatment";
+        }
+        
+        // Determine trend
+        $firstHalf = array_slice($pestHistory, 0, ceil($count / 2));
+        $secondHalf = array_slice($pestHistory, ceil($count / 2));
+        
+        if (count($secondHalf) > count($firstHalf) * 1.5) {
+            $outbreakTrend = 'escalating';
+        } elseif (count($secondHalf) < count($firstHalf) * 0.7) {
+            $outbreakTrend = 'declining';
+        }
+    }
+    
+    return [
+        'is_outbreak' => $isOutbreak,
+        'outbreak_severity' => $outbreakSeverity,
+        'outbreak_trend' => $outbreakTrend,
+        'outbreak_message' => $outbreakMessage
+    ];
+}
+
+/**
+ * Determine action priority for pest alerts
+ */
+function determinePestActionPriority($severity, $status, $urgencyScore, $isOutbreak)
+{
+    if ($status === 'resolved') {
+        return [
+            'priority' => 'completed',
+            'priority_label' => 'Resolved',
+            'priority_color' => 'green',
+            'action_needed' => 'Monitor for recurrence'
+        ];
+    }
+    
+    if ($isOutbreak || $urgencyScore >= 80) {
+        return [
+            'priority' => 'immediate',
+            'priority_label' => 'Immediate Action',
+            'priority_color' => 'red',
+            'action_needed' => 'Deploy treatment immediately - critical situation'
+        ];
+    }
+    
+    if ($urgencyScore >= 60 || $severity === 'high') {
+        return [
+            'priority' => 'urgent',
+            'priority_label' => 'Urgent',
+            'priority_color' => 'orange',
+            'action_needed' => 'Schedule treatment within 24 hours'
+        ];
+    }
+    
+    if ($urgencyScore >= 40 || $severity === 'medium') {
+        return [
+            'priority' => 'moderate',
+            'priority_label' => 'Moderate',
+            'priority_color' => 'yellow',
+            'action_needed' => 'Plan treatment within 48-72 hours'
+        ];
+    }
+    
+    return [
+        'priority' => 'low',
+        'priority_label' => 'Low Priority',
+        'priority_color' => 'blue',
+        'action_needed' => 'Monitor and assess - no immediate action required'
+    ];
 }
 
 /**
@@ -622,6 +1213,19 @@ include 'includes/navigation.php';
                 <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-6 shadow-sm">
                 <div class="space-y-3">
                     <?php if ($reportType === 'sensor'): ?>
+                        <?php
+                        // Calculate trend insights
+                        $criticalCount = 0;
+                        $risingTrends = 0;
+                        $fallingTrends = 0;
+                        $anomalyCount = 0;
+                        foreach ($reportData as $row) {
+                            if ($row['is_critical']) $criticalCount++;
+                            if ($row['trend'] === 'rising') $risingTrends++;
+                            if ($row['trend'] === 'falling') $fallingTrends++;
+                            if ($row['anomaly']['is_anomaly']) $anomalyCount++;
+                        }
+                        ?>
                         <div class="p-3 bg-green-50 dark:bg-green-900/20 rounded-lg">
                             <div class="flex items-center gap-2 mb-2">
                                 <i class="fas fa-chart-line text-green-600 dark:text-green-400 text-xs"></i>
@@ -631,16 +1235,49 @@ include 'includes/navigation.php';
                                 <?php echo number_format($summary['sensor_stats']['total_readings']); ?> readings collected from <?php echo $summary['sensor_stats']['total_sensors']; ?> sensors
                             </p>
                         </div>
-                        <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                        <?php if ($criticalCount > 0): ?>
+                        <div class="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                             <div class="flex items-center gap-2 mb-2">
-                                <i class="fas fa-calendar text-blue-600 dark:text-blue-400 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-900 dark:text-white">Activity Period</span>
+                                <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-900 dark:text-white">Critical Alerts</span>
                             </div>
-                            <p class="text-xs text-gray-600 dark:text-gray-400">
-                                Active data collection for <?php echo $summary['sensor_stats']['active_days']; ?> out of <?php echo $summary['date_range']['days']; ?> days
+                            <p class="text-xs text-red-700 dark:text-red-300 font-semibold">
+                                <?php echo $criticalCount; ?> sensor readings in critical range - immediate attention required
                             </p>
                         </div>
+                        <?php endif; ?>
+                        <div class="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas fa-chart-area text-blue-600 dark:text-blue-400 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-900 dark:text-white">Trend Analysis</span>
+                            </div>
+                            <p class="text-xs text-gray-600 dark:text-gray-400">
+                                <?php echo $risingTrends; ?> rising trends, <?php echo $fallingTrends; ?> falling trends detected
+                            </p>
+                        </div>
+                        <?php if ($anomalyCount > 0): ?>
+                        <div class="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas fa-bolt text-yellow-600 dark:text-yellow-400 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-900 dark:text-white">Anomalies Detected</span>
+                            </div>
+                            <p class="text-xs text-yellow-700 dark:text-yellow-300 font-semibold">
+                                <?php echo $anomalyCount; ?> unusual readings detected - investigate sensor behavior
+                            </p>
+                        </div>
+                        <?php endif; ?>
                     <?php else: ?>
+                        <?php
+                        // Calculate pest insights
+                        $immediateAction = 0;
+                        $outbreakCount = 0;
+                        $unresolvedCount = 0;
+                        foreach ($reportData as $row) {
+                            if ($row['action_priority']['priority'] === 'immediate') $immediateAction++;
+                            if ($row['is_outbreak']) $outbreakCount++;
+                            if ($row['status'] !== 'resolved') $unresolvedCount++;
+                        }
+                        ?>
                         <div class="p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg">
                             <div class="flex items-center gap-2 mb-2">
                                 <i class="fas fa-bug text-yellow-600 dark:text-yellow-400 text-xs"></i>
@@ -650,13 +1287,35 @@ include 'includes/navigation.php';
                                 <?php echo $summary['pest_stats']['total_alerts']; ?> alerts from <?php echo $summary['pest_stats']['unique_pests']; ?> different pest types
                             </p>
                         </div>
-                        <div class="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
+                        <?php if ($immediateAction > 0): ?>
+                        <div class="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border border-red-200 dark:border-red-800">
                             <div class="flex items-center gap-2 mb-2">
-                                <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-xs"></i>
-                                <span class="text-xs font-medium text-gray-900 dark:text-white">Critical Issues</span>
+                                <i class="fas fa-exclamation-circle text-red-600 dark:text-red-400 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-900 dark:text-white">Immediate Action Required</span>
+                            </div>
+                            <p class="text-xs text-red-700 dark:text-red-300 font-semibold">
+                                <?php echo $immediateAction; ?> alerts require immediate intervention
+                            </p>
+                        </div>
+                        <?php endif; ?>
+                        <?php if ($outbreakCount > 0): ?>
+                        <div class="p-3 bg-red-50 dark:bg-red-900/20 rounded-lg border-2 border-red-300 dark:border-red-700">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas fa-radiation text-red-600 dark:text-red-400 text-xs animate-pulse"></i>
+                                <span class="text-xs font-bold text-red-900 dark:text-red-100">OUTBREAK DETECTED</span>
+                            </div>
+                            <p class="text-xs text-red-700 dark:text-red-300 font-semibold">
+                                <?php echo $outbreakCount; ?> potential outbreak(s) - deploy treatment immediately
+                            </p>
+                        </div>
+                        <?php endif; ?>
+                        <div class="p-3 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+                            <div class="flex items-center gap-2 mb-2">
+                                <i class="fas fa-tasks text-orange-600 dark:text-orange-400 text-xs"></i>
+                                <span class="text-xs font-medium text-gray-900 dark:text-white">Pending Resolution</span>
                             </div>
                             <p class="text-xs text-gray-600 dark:text-gray-400">
-                                <?php echo $summary['pest_stats']['critical_alerts']; ?> critical alerts requiring immediate attention
+                                <?php echo $unresolvedCount; ?> unresolved alerts need attention
                             </p>
                         </div>
                     <?php endif; ?>
@@ -694,13 +1353,16 @@ include 'includes/navigation.php';
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Location</th>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Avg Value</th>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Range</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Trend</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Status</th>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Readings</th>
                                 <?php else: ?>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Date/Time</th>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Pest Type</th>
                                     <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Severity</th>
-                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Confidence</th>
-                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Suggested Actions</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Priority</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Status</th>
+                                    <th class="px-4 py-3 text-left text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Action Required</th>
                                 <?php endif; ?>
                             </tr>
                         </thead>
@@ -716,24 +1378,84 @@ include 'includes/navigation.php';
                                             </span>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300"><?php echo htmlspecialchars($row['location']); ?></td>
-                                        <td class="px-4 py-3 text-sm font-semibold text-gray-900 dark:text-gray-100">
+                                        <td class="px-4 py-3 text-sm font-semibold <?php echo $row['is_critical'] ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-gray-100'; ?>">
                                             <?php echo number_format($row['avg_value'], 1) . $row['unit']; ?>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300">
                                             <?php echo number_format($row['min_value'], 1) . ' - ' . number_format($row['max_value'], 1) . $row['unit']; ?>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <?php
+                                            $trendIcons = [
+                                                'rising' => ['icon' => 'fa-arrow-up', 'color' => 'text-red-600 dark:text-red-400', 'bg' => 'bg-red-50 dark:bg-red-900/20'],
+                                                'falling' => ['icon' => 'fa-arrow-down', 'color' => 'text-blue-600 dark:text-blue-400', 'bg' => 'bg-blue-50 dark:bg-blue-900/20'],
+                                                'stable' => ['icon' => 'fa-minus', 'color' => 'text-green-600 dark:text-green-400', 'bg' => 'bg-green-50 dark:bg-green-900/20']
+                                            ];
+                                            $trendConfig = $trendIcons[$row['trend']] ?? $trendIcons['stable'];
+                                            ?>
+                                            <div class="flex items-center gap-2">
+                                                <span class="inline-flex items-center px-2 py-1 text-xs font-medium <?php echo $trendConfig['bg']; ?> <?php echo $trendConfig['color']; ?> rounded-full">
+                                                    <i class="fas <?php echo $trendConfig['icon']; ?> mr-1"></i>
+                                                    <?php echo ucfirst($row['trend']); ?>
+                                                </span>
+                                                <?php if (abs($row['trend_percent']) > 1): ?>
+                                                    <span class="text-xs text-gray-500 dark:text-gray-400">
+                                                        <?php echo ($row['trend_percent'] > 0 ? '+' : '') . number_format($row['trend_percent'], 1); ?>%
+                                                    </span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </td>
+                                        <td class="px-4 py-3">
+                                            <?php if ($row['is_critical']): ?>
+                                                <div class="flex flex-col gap-1">
+                                                    <span class="inline-flex items-center px-2 py-1 text-xs font-semibold bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-full">
+                                                        <i class="fas fa-exclamation-triangle mr-1"></i>
+                                                        <?php echo $row['critical_reason']; ?>
+                                                    </span>
+                                                    <?php if ($row['urgency_score'] >= 70): ?>
+                                                        <span class="text-xs text-red-600 dark:text-red-400 font-medium">
+                                                            Urgency: <?php echo $row['urgency_score']; ?>/100
+                                                        </span>
+                                                    <?php endif; ?>
+                                                    <?php if ($row['anomaly']['is_anomaly']): ?>
+                                                        <span class="inline-flex items-center px-2 py-1 text-xs font-medium bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 rounded-full">
+                                                            <i class="fas fa-bolt mr-1"></i>
+                                                            Anomaly: <?php echo ucfirst($row['anomaly']['anomaly_type']); ?>
+                                                        </span>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php else: ?>
+                                                <span class="inline-flex items-center px-2 py-1 text-xs font-medium bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 rounded-full">
+                                                    <i class="fas fa-check-circle mr-1"></i>
+                                                    Normal
+                                                </span>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300"><?php echo $row['reading_count']; ?></td>
                                     <?php else: ?>
                                         <td class="px-4 py-3 text-xs text-gray-900 dark:text-gray-100">
                                             <div class="font-medium"><?php echo date('M j, Y', strtotime($row['date'])); ?></div>
                                             <div class="text-gray-600 dark:text-gray-400"><?php echo date('g:i A', strtotime($row['time'])); ?></div>
+                                            <?php if ($row['hours_since_detection'] > 24): ?>
+                                                <div class="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                                                    <?php echo round($row['hours_since_detection'] / 24, 1); ?> days ago
+                                                </div>
+                                            <?php endif; ?>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <div class="flex items-center">
-                                                <?php if ($row['image_path']): ?>
-                                                    <i class="fas fa-image text-blue-500 dark:text-blue-400 mr-2 text-xs"></i>
+                                            <div class="flex flex-col gap-1">
+                                                <div class="flex items-center">
+                                                    <?php if ($row['image_path']): ?>
+                                                        <i class="fas fa-image text-blue-500 dark:text-blue-400 mr-2 text-xs"></i>
+                                                    <?php endif; ?>
+                                                    <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"><?php echo htmlspecialchars($row['pest_type']); ?></span>
+                                                </div>
+                                                <?php if ($row['is_outbreak']): ?>
+                                                    <span class="inline-flex items-center px-2 py-1 text-xs font-bold bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 rounded-full">
+                                                        <i class="fas fa-exclamation-circle mr-1"></i>
+                                                        OUTBREAK: <?php echo ucfirst($row['outbreak_severity']); ?>
+                                                    </span>
                                                 <?php endif; ?>
-                                                <span class="text-sm font-semibold text-gray-900 dark:text-gray-100"><?php echo htmlspecialchars($row['pest_type']); ?></span>
                                             </div>
                                         </td>
                                         <td class="px-4 py-3">
@@ -752,24 +1474,46 @@ include 'includes/navigation.php';
                                             </span>
                                         </td>
                                         <td class="px-4 py-3">
-                                            <?php if ($row['confidence_score']): ?>
-                                                <div class="flex items-center">
-                                                    <div class="w-16 bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mr-2">
-                                                        <div class="bg-blue-600 dark:bg-blue-500 h-2.5 rounded-full" style="width: <?php echo $row['confidence_score']; ?>%"></div>
-                                                    </div>
-                                                    <span class="text-sm font-medium text-gray-900 dark:text-gray-100"><?php echo number_format($row['confidence_score'], 1); ?>%</span>
-                                                </div>
-                                            <?php else: ?>
-                                                <span class="text-sm text-gray-500 dark:text-gray-400">N/A</span>
-                                            <?php endif; ?>
+                                            <?php
+                                            $priorityColors = [
+                                                'immediate' => 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200 border-red-300',
+                                                'urgent' => 'bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-200 border-orange-300',
+                                                'moderate' => 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 border-yellow-300',
+                                                'low' => 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 border-blue-300',
+                                                'completed' => 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200 border-green-300'
+                                            ];
+                                            $priorityClass = $priorityColors[$row['action_priority']['priority']] ?? 'bg-gray-100 text-gray-800';
+                                            ?>
+                                            <div class="flex flex-col gap-1">
+                                                <span class="inline-flex items-center px-2 py-1 text-xs font-semibold <?php echo $priorityClass; ?> rounded-full border">
+                                                    <?php echo $row['action_priority']['priority_label']; ?>
+                                                </span>
+                                                <span class="text-xs text-gray-600 dark:text-gray-400">
+                                                    Score: <?php echo $row['urgency_score']; ?>/100
+                                                </span>
+                                            </div>
                                         </td>
-                                        <td class="px-4 py-3 text-sm text-gray-700 dark:text-gray-300 max-w-md">
-                                            <?php if ($row['suggested_actions']): ?>
-                                                <div class="line-clamp-2" title="<?php echo htmlspecialchars($row['suggested_actions']); ?>">
-                                                    <?php echo htmlspecialchars($row['suggested_actions']); ?>
+                                        <td class="px-4 py-3">
+                                            <?php
+                                            $statusColors = [
+                                                'new' => 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-200',
+                                                'acknowledged' => 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200',
+                                                'resolved' => 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200'
+                                            ];
+                                            $statusClass = $statusColors[$row['status']] ?? 'bg-gray-100 text-gray-800';
+                                            ?>
+                                            <span class="inline-flex items-center px-2 py-1 text-xs font-medium <?php echo $statusClass; ?> rounded-full">
+                                                <?php echo ucfirst($row['status']); ?>
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-3 text-xs text-gray-700 dark:text-gray-300 max-w-xs">
+                                            <div class="font-medium text-gray-900 dark:text-white mb-1">
+                                                <?php echo htmlspecialchars($row['action_priority']['action_needed']); ?>
+                                            </div>
+                                            <?php if ($row['outbreak_message']): ?>
+                                                <div class="text-red-600 dark:text-red-400 font-semibold mt-1">
+                                                    <?php echo htmlspecialchars($row['outbreak_message']); ?>
                                                 </div>
-                                            <?php else: ?>
-                                                <span class="text-gray-500 dark:text-gray-400 italic">No actions suggested</span>
                                             <?php endif; ?>
                                         </td>
                                     <?php endif; ?>

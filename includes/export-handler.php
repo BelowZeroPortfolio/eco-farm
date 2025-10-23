@@ -225,7 +225,130 @@ class ExportHandler
                 }
             }
 
-            // Add professional summary footer
+            // Add statistical analysis section
+            fputcsv($output, []);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, ['STATISTICAL ANALYSIS']);
+            fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+            fputcsv($output, []);
+            
+            if ($reportType === 'sensor') {
+                // Calculate sensor statistics
+                $stats = $this->calculateSensorStatistics($data);
+                
+                fputcsv($output, ['Metric', 'Value']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Total Sensor-Days', number_format(count($data))]);
+                fputcsv($output, ['Total Readings', number_format($stats['total_readings'])]);
+                fputcsv($output, ['Average Readings per Day', number_format($stats['avg_readings_per_day'], 1)]);
+                fputcsv($output, ['Unique Sensors', $stats['unique_sensors']]);
+                fputcsv($output, ['Data Quality (Excellent)', $stats['excellent_quality'] . '%']);
+                fputcsv($output, []);
+                
+                // By sensor type
+                fputcsv($output, ['Statistics by Sensor Type']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Sensor Type', 'Records', 'Avg Value', 'Min Value', 'Max Value', 'Unit']);
+                
+                foreach ($stats['by_type'] as $type => $typeStats) {
+                    fputcsv($output, [
+                        ucfirst(str_replace('_', ' ', $type)),
+                        $typeStats['count'],
+                        number_format($typeStats['avg'], 2),
+                        number_format($typeStats['min'], 2),
+                        number_format($typeStats['max'], 2),
+                        $typeStats['unit']
+                    ]);
+                }
+                
+                fputcsv($output, []);
+                fputcsv($output, ['Trend Analysis']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, [$stats['trend_analysis']]);
+                
+            } else {
+                // Calculate pest statistics
+                $stats = $this->calculatePestStatistics($data);
+                
+                fputcsv($output, ['Metric', 'Value']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Total Alerts', number_format(count($data))]);
+                fputcsv($output, ['Unique Pest Types', $stats['unique_pests']]);
+                fputcsv($output, ['Average Confidence', $stats['avg_confidence'] . '%']);
+                fputcsv($output, ['Resolution Rate', $stats['resolution_rate'] . '%']);
+                fputcsv($output, []);
+                
+                // By severity
+                fputcsv($output, ['Alerts by Severity']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Severity', 'Count', 'Percentage']);
+                
+                foreach ($stats['by_severity'] as $severity => $count) {
+                    $percentage = (count($data) > 0) ? round(($count / count($data)) * 100, 1) : 0;
+                    fputcsv($output, [
+                        ucfirst($severity),
+                        $count,
+                        $percentage . '%'
+                    ]);
+                }
+                
+                fputcsv($output, []);
+                fputcsv($output, ['Alerts by Status']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Status', 'Count', 'Percentage']);
+                
+                foreach ($stats['by_status'] as $status => $count) {
+                    $percentage = (count($data) > 0) ? round(($count / count($data)) * 100, 1) : 0;
+                    fputcsv($output, [
+                        ucfirst($status),
+                        $count,
+                        $percentage . '%'
+                    ]);
+                }
+                
+                fputcsv($output, []);
+                fputcsv($output, ['Top 5 Most Detected Pests']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, ['Rank', 'Pest Type', 'Detections']);
+                
+                $rank = 1;
+                foreach ($stats['top_pests'] as $pest => $count) {
+                    fputcsv($output, [$rank++, $pest, $count]);
+                    if ($rank > 5) break;
+                }
+                
+                fputcsv($output, []);
+                fputcsv($output, ['Risk Assessment']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                fputcsv($output, [$stats['risk_assessment']]);
+            }
+            
+            // Add Activity Logs section
+            $activityLogs = $this->getActivityLogs($reportType, $startDate, $endDate);
+            
+            if (!empty($activityLogs)) {
+                fputcsv($output, []);
+                fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+                fputcsv($output, ['RECENT READINGS LOG']);
+                fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
+                fputcsv($output, []);
+                fputcsv($output, ['Time', 'Type', 'Sensor/Pest', 'Value/Location', 'Status']);
+                fputcsv($output, ['─────────────────────────────────────────────────────────────']);
+                
+                foreach ($activityLogs as $log) {
+                    fputcsv($output, [
+                        $log['time'],
+                        $log['type_display'],
+                        $log['sensor_name'],
+                        $log['value_display'],
+                        $log['status_icon'] . ' ' . ucfirst($log['status'])
+                    ]);
+                }
+                
+                fputcsv($output, []);
+                fputcsv($output, ['Total Log Entries:', count($activityLogs)]);
+            }
+            
             fputcsv($output, []);
             fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
             fputcsv($output, ['EXPORT SUMMARY']);
@@ -234,6 +357,7 @@ class ExportHandler
             fputcsv($output, ['Total Records Exported:', number_format(count($data))]);
             fputcsv($output, ['Export Status:', 'Completed Successfully']);
             fputcsv($output, ['Export Format:', 'CSV (Comma-Separated Values)']);
+            fputcsv($output, ['File Size:', 'Optimized for Excel/Spreadsheet Applications']);
             fputcsv($output, []);
             fputcsv($output, ['═══════════════════════════════════════════════════════════════']);
             fputcsv($output, ['Sagay Eco-Farm IoT Agricultural System']);
@@ -553,7 +677,7 @@ class ExportHandler
     }
 
     /**
-     * Generate print-friendly HTML with professional styling
+     * Generate print-friendly HTML with professional styling and charts
      */
     private function generatePrintFriendlyHTML($reportType, $startDate, $endDate, $data)
     {
@@ -561,6 +685,8 @@ class ExportHandler
         $dateRange = date('M j, Y', strtotime($startDate)) . ' - ' . date('M j, Y', strtotime($endDate));
         $summary = $this->generateSummaryStats($reportType, $data, $startDate, $endDate);
         $analysis = $this->generateAnalysis($reportType, $data);
+        $chartData = $this->prepareChartData($reportType, $data);
+        $activityLogs = $this->getActivityLogs($reportType, $startDate, $endDate);
 
         $html = '<!DOCTYPE html>
 <html lang="en">
@@ -568,6 +694,7 @@ class ExportHandler
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>' . htmlspecialchars($title) . '</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @media print {
             body { margin: 0; }
@@ -782,6 +909,86 @@ class ExportHandler
             font-size: 10px;
             color: #92400e;
         }
+        
+        .chart-container {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            page-break-inside: avoid;
+        }
+        
+        .chart-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 12px;
+        }
+        
+        .chart-wrapper {
+            position: relative;
+            height: 300px;
+            margin-bottom: 15px;
+        }
+        
+        .logs-container {
+            background: white;
+            border: 1px solid #e5e7eb;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+        
+        .log-entry {
+            padding: 8px;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 10px;
+        }
+        
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+        
+        .log-timestamp {
+            color: #6b7280;
+            font-weight: 600;
+        }
+        
+        .log-type {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 9px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .log-type-sensor {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .log-type-pest {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .log-type-system {
+            background: #f3f4f6;
+            color: #374151;
+        }
+        
+        .log-type-user {
+            background: #ddd6fe;
+            color: #5b21b6;
+        }
+        
+        @media print {
+            .chart-container, .logs-container {
+                page-break-inside: avoid;
+            }
+        }
     </style>
 </head>
 <body>
@@ -810,6 +1017,17 @@ class ExportHandler
         $html .= '
         </div>
     </div>';
+
+        // Add charts section
+        if (!empty($data) && !empty($chartData)) {
+            $html .= '<div class="section-title">📊 Visual Analysis</div>';
+            $html .= '<div class="chart-container">';
+            $html .= '<div class="chart-title">Trend Analysis Chart</div>';
+            $html .= '<div class="chart-wrapper">';
+            $html .= '<canvas id="mainChart"></canvas>';
+            $html .= '</div>';
+            $html .= '</div>';
+        }
 
         if (!empty($data)) {
             $html .= '<div class="section-title">📋 Data Records</div>';
@@ -890,17 +1108,257 @@ class ExportHandler
     <div class="section-title">📈 Analysis</div>
     <div class="analysis-box">
         <div class="analysis-text">' . nl2br(htmlspecialchars($analysis)) . '</div>
-    </div>
+    </div>';
+
+        // Add Activity Logs section
+        if (!empty($activityLogs)) {
+            $html .= '
+    <div class="page-break"></div>
+    <div class="section-title">📝 Recent Readings Log</div>
+    <div class="logs-container">
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Type</th>
+                    <th>Sensor</th>
+                    <th>Value</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>';
+
+            foreach ($activityLogs as $log) {
+                $statusClass = $log['status'] === 'success' ? 'status-resolved' : 'severity-high';
+                $statusIcon = $log['status'] === 'success' ? '✓' : ($log['status_icon'] ?? '⚠');
+                
+                $html .= '
+                <tr>
+                    <td>' . htmlspecialchars($log['time']) . '</td>
+                    <td>' . htmlspecialchars($log['type_display']) . '</td>
+                    <td>' . htmlspecialchars($log['sensor_name']) . '</td>
+                    <td><strong>' . htmlspecialchars($log['value_display']) . '</strong></td>
+                    <td class="' . $statusClass . '">' . $statusIcon . '</td>
+                </tr>';
+            }
+
+            $html .= '
+            </tbody>
+        </table>
+    </div>';
+        }
+
+        $html .= '
     
     <div class="footer">
         <p><strong>IoT Farm Monitoring System</strong></p>
         <p>This report was generated automatically. For support, contact: admin@farmmonitoring.com</p>
         <p>To save as PDF: Click the Print button above and select "Save as PDF" in your browser\'s print dialog.</p>
     </div>
+    
+    <script>
+        // Wait for page to load
+        window.addEventListener("load", function() {
+            const chartData = ' . json_encode($chartData) . ';
+            const reportType = "' . $reportType . '";
+            
+            if (chartData && chartData.labels && chartData.labels.length > 0) {
+                const ctx = document.getElementById("mainChart");
+                if (ctx) {
+                    new Chart(ctx, {
+                        type: reportType === "sensor" ? "line" : "bar",
+                        data: {
+                            labels: chartData.labels,
+                            datasets: chartData.datasets
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            plugins: {
+                                legend: {
+                                    position: "top",
+                                    labels: {
+                                        font: { size: 11 },
+                                        boxWidth: 12
+                                    }
+                                },
+                                title: {
+                                    display: false
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: reportType === "pest",
+                                    ticks: {
+                                        font: { size: 10 }
+                                    },
+                                    grid: {
+                                        color: "#e5e7eb"
+                                    }
+                                },
+                                x: {
+                                    ticks: {
+                                        font: { size: 10 },
+                                        maxRotation: 45,
+                                        minRotation: 0
+                                    },
+                                    grid: {
+                                        display: false
+                                    }
+                                }
+                            },
+                            animation: {
+                                duration: 0
+                            }
+                        }
+                    });
+                }
+            }
+        });
+    </script>
 </body>
 </html>';
 
         return $html;
+    }
+    
+    /**
+     * Prepare chart data for visualization
+     */
+    private function prepareChartData($reportType, $data)
+    {
+        if (empty($data)) {
+            return null;
+        }
+
+        if ($reportType === 'sensor') {
+            // Group by sensor type and date
+            $grouped = [];
+            foreach ($data as $row) {
+                $type = $row['sensor_type'];
+                $date = $row['date'];
+                
+                if (!isset($grouped[$type])) {
+                    $grouped[$type] = [];
+                }
+                
+                if (!isset($grouped[$type][$date])) {
+                    $grouped[$type][$date] = [];
+                }
+                
+                $grouped[$type][$date][] = $row['avg_value'];
+            }
+
+            // Get unique dates
+            $allDates = [];
+            foreach ($data as $row) {
+                $allDates[$row['date']] = true;
+            }
+            $labels = array_keys($allDates);
+            sort($labels);
+            
+            // Format labels
+            $formattedLabels = array_map(function($date) {
+                return date('M j', strtotime($date));
+            }, $labels);
+
+            // Create datasets
+            $colors = [
+                'temperature' => ['border' => '#ef4444', 'bg' => 'rgba(239, 68, 68, 0.1)'],
+                'humidity' => ['border' => '#3b82f6', 'bg' => 'rgba(59, 130, 246, 0.1)'],
+                'soil_moisture' => ['border' => '#10b981', 'bg' => 'rgba(16, 185, 129, 0.1)']
+            ];
+
+            $datasets = [];
+            foreach ($grouped as $type => $dateData) {
+                $values = [];
+                foreach ($labels as $date) {
+                    if (isset($dateData[$date])) {
+                        $values[] = round(array_sum($dateData[$date]) / count($dateData[$date]), 2);
+                    } else {
+                        $values[] = null;
+                    }
+                }
+
+                $color = $colors[$type] ?? ['border' => '#6b7280', 'bg' => 'rgba(107, 114, 128, 0.1)'];
+                
+                $datasets[] = [
+                    'label' => ucfirst(str_replace('_', ' ', $type)),
+                    'data' => $values,
+                    'borderColor' => $color['border'],
+                    'backgroundColor' => $color['bg'],
+                    'borderWidth' => 2,
+                    'fill' => true,
+                    'tension' => 0.3,
+                    'pointRadius' => 3,
+                    'pointHoverRadius' => 5
+                ];
+            }
+
+            return [
+                'labels' => $formattedLabels,
+                'datasets' => $datasets
+            ];
+        } else {
+            // Pest data - group by severity and date
+            $grouped = [];
+            $allDates = [];
+            
+            foreach ($data as $row) {
+                $date = $row['date'];
+                $severity = $row['severity'];
+                
+                $allDates[$date] = true;
+                
+                if (!isset($grouped[$date])) {
+                    $grouped[$date] = [
+                        'low' => 0,
+                        'medium' => 0,
+                        'high' => 0,
+                        'critical' => 0
+                    ];
+                }
+                
+                $grouped[$date][$severity]++;
+            }
+
+            $labels = array_keys($allDates);
+            sort($labels);
+            
+            // Format labels
+            $formattedLabels = array_map(function($date) {
+                return date('M j', strtotime($date));
+            }, $labels);
+
+            $severities = ['low', 'medium', 'high', 'critical'];
+            $colors = [
+                'low' => '#10b981',
+                'medium' => '#f59e0b',
+                'high' => '#f97316',
+                'critical' => '#ef4444'
+            ];
+
+            $datasets = [];
+            foreach ($severities as $severity) {
+                $values = [];
+                foreach ($labels as $date) {
+                    $values[] = $grouped[$date][$severity] ?? 0;
+                }
+
+                $datasets[] = [
+                    'label' => ucfirst($severity),
+                    'data' => $values,
+                    'backgroundColor' => $colors[$severity],
+                    'borderColor' => $colors[$severity],
+                    'borderWidth' => 1
+                ];
+            }
+
+            return [
+                'labels' => $formattedLabels,
+                'datasets' => $datasets
+            ];
+        }
     }
 
     /**
@@ -1093,6 +1551,282 @@ class ExportHandler
                 return 'Low';
             default:
                 return 'Unknown';
+        }
+    }
+
+    /**
+     * Calculate sensor statistics for CSV export
+     */
+    private function calculateSensorStatistics($data)
+    {
+        $stats = [
+            'total_readings' => 0,
+            'unique_sensors' => 0,
+            'excellent_quality' => 0,
+            'by_type' => [],
+            'trend_analysis' => ''
+        ];
+
+        if (empty($data)) {
+            return $stats;
+        }
+
+        // Calculate totals
+        $totalReadings = array_sum(array_column($data, 'reading_count'));
+        $uniqueSensors = count(array_unique(array_column($data, 'sensor_name')));
+        
+        // Calculate quality
+        $excellentCount = 0;
+        foreach ($data as $row) {
+            if ($row['reading_count'] >= 20) {
+                $excellentCount++;
+            }
+        }
+        $excellentPercent = round(($excellentCount / count($data)) * 100, 1);
+
+        // Group by type
+        $byType = [];
+        foreach ($data as $row) {
+            $type = $row['sensor_type'];
+            if (!isset($byType[$type])) {
+                $byType[$type] = [
+                    'count' => 0,
+                    'values' => [],
+                    'unit' => $row['unit']
+                ];
+            }
+            $byType[$type]['count']++;
+            $byType[$type]['values'][] = $row['avg_value'];
+        }
+
+        // Calculate stats by type
+        foreach ($byType as $type => $typeData) {
+            $stats['by_type'][$type] = [
+                'count' => $typeData['count'],
+                'avg' => array_sum($typeData['values']) / count($typeData['values']),
+                'min' => min($typeData['values']),
+                'max' => max($typeData['values']),
+                'unit' => $typeData['unit']
+            ];
+        }
+
+        // Trend analysis
+        $trendText = "Data collection shows consistent monitoring across {$uniqueSensors} sensors. ";
+        $trendText .= "Quality metrics indicate " . ($excellentPercent > 70 ? "excellent" : ($excellentPercent > 40 ? "good" : "needs improvement")) . " data reliability. ";
+        
+        $mostActiveType = array_keys($byType, max($byType))[0] ?? 'unknown';
+        $trendText .= "Most active sensor type: " . ucfirst(str_replace('_', ' ', $mostActiveType)) . ".";
+
+        $stats['total_readings'] = $totalReadings;
+        $stats['unique_sensors'] = $uniqueSensors;
+        $stats['excellent_quality'] = $excellentPercent;
+        $stats['avg_readings_per_day'] = $totalReadings / count($data);
+        $stats['trend_analysis'] = $trendText;
+
+        return $stats;
+    }
+
+    /**
+     * Calculate pest statistics for CSV export
+     */
+    private function calculatePestStatistics($data)
+    {
+        $stats = [
+            'unique_pests' => 0,
+            'avg_confidence' => 0,
+            'resolution_rate' => 0,
+            'by_severity' => [],
+            'by_status' => [],
+            'top_pests' => [],
+            'risk_assessment' => ''
+        ];
+
+        if (empty($data)) {
+            return $stats;
+        }
+
+        // Unique pests
+        $uniquePests = count(array_unique(array_column($data, 'pest_type')));
+
+        // Average confidence
+        $confidenceScores = array_filter(array_column($data, 'confidence_score'));
+        $avgConfidence = !empty($confidenceScores) ? round(array_sum($confidenceScores) / count($confidenceScores), 1) : 0;
+
+        // Resolution rate
+        $statusCounts = array_count_values(array_column($data, 'status'));
+        $resolvedCount = $statusCounts['resolved'] ?? 0;
+        $resolutionRate = round(($resolvedCount / count($data)) * 100, 1);
+
+        // By severity
+        $bySeverity = array_count_values(array_column($data, 'severity'));
+        arsort($bySeverity);
+
+        // By status
+        $byStatus = array_count_values(array_column($data, 'status'));
+
+        // Top pests
+        $topPests = array_count_values(array_column($data, 'pest_type'));
+        arsort($topPests);
+
+        // Risk assessment
+        $criticalCount = $bySeverity['critical'] ?? 0;
+        $highCount = $bySeverity['high'] ?? 0;
+        $unresolvedCount = ($statusCounts['new'] ?? 0) + ($statusCounts['acknowledged'] ?? 0);
+
+        $riskText = "Analysis of {$uniquePests} unique pest types detected. ";
+        
+        if ($criticalCount > 0) {
+            $riskText .= "CRITICAL: {$criticalCount} critical severity alerts require immediate attention. ";
+        }
+        
+        if ($unresolvedCount > count($data) * 0.5) {
+            $riskText .= "High number of unresolved alerts ({$unresolvedCount}) indicates need for increased intervention. ";
+        } else {
+            $riskText .= "Resolution rate of {$resolutionRate}% shows effective pest management. ";
+        }
+
+        $mostCommonPest = array_key_first($topPests);
+        $riskText .= "Most frequent pest: {$mostCommonPest} with " . $topPests[$mostCommonPest] . " detections.";
+
+        $stats['unique_pests'] = $uniquePests;
+        $stats['avg_confidence'] = $avgConfidence;
+        $stats['resolution_rate'] = $resolutionRate;
+        $stats['by_severity'] = $bySeverity;
+        $stats['by_status'] = $byStatus;
+        $stats['top_pests'] = $topPests;
+        $stats['risk_assessment'] = $riskText;
+
+        return $stats;
+    }
+
+    /**
+     * Get activity logs for the report period
+     */
+    private function getActivityLogs($reportType, $startDate, $endDate, $limit = 50)
+    {
+        try {
+            $pdo = getDatabaseConnection();
+            $logs = [];
+
+            if ($reportType === 'sensor') {
+                // Get sensor reading activities in sensors.php format
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        sr.recorded_at,
+                        s.sensor_name,
+                        s.sensor_type,
+                        sr.value,
+                        sr.unit,
+                        s.alert_threshold_min,
+                        s.alert_threshold_max
+                    FROM sensor_readings sr
+                    JOIN sensors s ON sr.sensor_id = s.id
+                    WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
+                    ORDER BY sr.recorded_at DESC
+                    LIMIT ?
+                ");
+                $stmt->execute([$startDate, $endDate, $limit]);
+                $readings = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Format like sensors.php table
+                $typeEmojis = [
+                    'temperature' => '🌡️',
+                    'humidity' => '💧',
+                    'soil_moisture' => '🌱'
+                ];
+
+                foreach ($readings as $reading) {
+                    $value = floatval($reading['value']);
+                    $type = $reading['sensor_type'];
+                    $minThreshold = $reading['alert_threshold_min'];
+                    $maxThreshold = $reading['alert_threshold_max'];
+                    
+                    // Determine status
+                    $isOptimal = false;
+                    $statusIcon = '⚠';
+                    
+                    if ($minThreshold !== null && $maxThreshold !== null) {
+                        $isOptimal = ($value >= $minThreshold && $value <= $maxThreshold);
+                        if ($isOptimal) {
+                            $statusIcon = '✓';
+                        } else {
+                            $statusIcon = ($value < $minThreshold) ? '↓' : '↑';
+                        }
+                    } else {
+                        $isOptimal = true;
+                        $statusIcon = '✓';
+                    }
+                    
+                    $logs[] = [
+                        'time' => date('M j, g:i A', strtotime($reading['recorded_at'])),
+                        'type_display' => ($typeEmojis[$type] ?? '📊') . ' ' . ucfirst(str_replace('_', ' ', $type)),
+                        'sensor_name' => $reading['sensor_name'],
+                        'value_display' => number_format($value, 1) . $reading['unit'],
+                        'status' => $isOptimal ? 'success' : 'warning',
+                        'status_icon' => $statusIcon
+                    ];
+                }
+            } else {
+                // Get pest detection activities
+                $stmt = $pdo->prepare("
+                    SELECT 
+                        pa.detected_at,
+                        pa.pest_type,
+                        pa.location,
+                        pa.severity,
+                        pa.status,
+                        pa.confidence_score,
+                        c.camera_name
+                    FROM pest_alerts pa
+                    LEFT JOIN cameras c ON pa.camera_id = c.id
+                    WHERE DATE(pa.detected_at) BETWEEN ? AND ?
+                    ORDER BY pa.detected_at DESC
+                    LIMIT ?
+                ");
+                $stmt->execute([$startDate, $endDate, $limit]);
+                $alerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+                // Format like pest detection table
+                $severityEmojis = [
+                    'low' => '🟢',
+                    'medium' => '🟡',
+                    'high' => '🟠',
+                    'critical' => '🔴'
+                ];
+
+                foreach ($alerts as $alert) {
+                    $severity = $alert['severity'];
+                    $status = $alert['status'];
+                    
+                    // Determine status icon
+                    $statusIcon = '⚠';
+                    $statusValue = 'warning';
+                    
+                    if ($status === 'resolved') {
+                        $statusIcon = '✓';
+                        $statusValue = 'success';
+                    } elseif ($severity === 'critical' || $severity === 'high') {
+                        $statusIcon = '⚠';
+                        $statusValue = 'error';
+                    }
+                    
+                    $confidenceText = $alert['confidence_score'] ? ' (' . round($alert['confidence_score'], 1) . '%)' : '';
+                    
+                    $logs[] = [
+                        'time' => date('M j, g:i A', strtotime($alert['detected_at'])),
+                        'type_display' => ($severityEmojis[$severity] ?? '🐛') . ' ' . ucfirst($severity),
+                        'sensor_name' => $alert['pest_type'],
+                        'value_display' => $alert['location'] . $confidenceText,
+                        'status' => $statusValue,
+                        'status_icon' => $statusIcon
+                    ];
+                }
+            }
+
+            return $logs;
+        } catch (Exception $e) {
+            error_log("Failed to get activity logs: " . $e->getMessage());
+            return [];
         }
     }
 

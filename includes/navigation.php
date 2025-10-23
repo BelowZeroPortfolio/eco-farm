@@ -98,6 +98,13 @@ $navigationSections = [
     'management' => [
         'title' => 'Management',
         'items' => [
+            'pest_config' => [
+                'title' => 'Pest Database',
+                'icon' => 'fas fa-database',
+                'url' => 'pest_config.php',
+                'roles' => ['admin'],
+                'description' => 'Manage pest information and severity'
+            ],
             'user_management' => [
                 'title' => 'Users',
                 'icon' => 'fas fa-users',

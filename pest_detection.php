@@ -9,7 +9,7 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 
 require_once 'config/database.php';
 require_once 'includes/security.php';
-require_once 'pest_severity_config.php';
+require_once 'includes/pest-config-helper.php'; // Database-driven pest config
 require_once 'YOLODetector2.php'; // Flask-based detector
 
 // Check page access permission
@@ -131,24 +131,26 @@ if ($isAjaxRequest) {
 
                             // Log to database if not rate-limited
                             if ($result['count'] == 0) {
-                                // Get pest-specific severity and actions from configuration
-                                $pestInfo = PestSeverityConfig::getPestInfo($pestType);
+                                // Get pest-specific severity and actions from database
+                                $pestInfo = getPestInfo($pestType);
                                 $severity = $pestInfo['severity'];
                                 $suggestedActions = $pestInfo['actions'];
+                                $description = $pestInfo['description']; // Use database description
+                                $commonName = $pestInfo['common_name']; // Get common name
 
                                 // Insert detection into pest_alerts
                                 try {
                                     $stmt = $pdo->prepare("
                                         INSERT INTO pest_alerts 
-                                        (pest_type, location, severity, confidence_score, description, suggested_actions, detected_at, is_read, notification_sent) 
-                                        VALUES (?, ?, ?, ?, ?, ?, NOW(), FALSE, FALSE)
+                                        (pest_type, common_name, location, severity, confidence_score, description, suggested_actions, detected_at, is_read, notification_sent) 
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), FALSE, FALSE)
                                     ");
 
                                     $location = 'Webcam Detection';
-                                    $description = "Detected via real-time webcam monitoring with {$confidence}% confidence. Severity based on agricultural impact assessment.";
 
                                     $logged = $stmt->execute([
                                         $pestType,
+                                        $commonName,
                                         $location,
                                         $severity,
                                         $confidence,
@@ -170,7 +172,7 @@ if ($isAjaxRequest) {
                             ];
                         } else {
                             // Low confidence - get severity but don't log
-                            $pestInfo = PestSeverityConfig::getPestInfo($pestType);
+                            $pestInfo = getPestInfo($pestType);
                             $severity = $pestInfo['severity'];
                         }
 
@@ -211,7 +213,8 @@ if ($isAjaxRequest) {
                 $stmt = $pdo->prepare("
                     SELECT 
                         id, 
-                        pest_type, 
+                        pest_type,
+                        common_name,
                         location, 
                         severity, 
                         confidence_score, 
@@ -228,14 +231,20 @@ if ($isAjaxRequest) {
                 $stmt->execute([$limit]);
                 $detections = $stmt->fetchAll();
 
-                // Format for display and add pest info
+                // Format for display
                 foreach ($detections as &$detection) {
                     $detection['confidence_score'] = round($detection['confidence_score'], 2);
 
                     // Get pest info if suggested_actions is empty
                     if (empty($detection['suggested_actions'])) {
-                        $pestInfo = PestSeverityConfig::getPestInfo($detection['pest_type']);
+                        $pestInfo = getPestInfo($detection['pest_type']);
                         $detection['suggested_actions'] = $pestInfo['actions'];
+                    }
+                    
+                    // If common_name is null in database, get it from pest_config
+                    if (empty($detection['common_name'])) {
+                        $pestInfo = getPestInfo($detection['pest_type']);
+                        $detection['common_name'] = $pestInfo['common_name'] ?? null;
                     }
                 }
 
@@ -346,8 +355,8 @@ if ($isAjaxRequest) {
                     throw new Exception('Alert not found');
                 }
 
-                // Get pest info from configuration
-                $pestInfo = PestSeverityConfig::getPestInfo($alert['pest_type']);
+                // Get pest info from database
+                $pestInfo = getPestInfo($alert['pest_type']);
 
                 echo json_encode([
                     'success' => true,
@@ -1186,7 +1195,7 @@ include 'includes/header.php';
                             </div>
                             <div class="flex-1 min-w-0">
                                 <div class="flex items-center justify-between gap-2">
-                                    <h4 class="text-sm font-medium text-gray-900 dark:text-white truncate">${escapeHtml(detection.pest_type)}</h4>
+                                    <h4 class="text-sm font-medium text-gray-900 dark:text-white truncate">${escapeHtml(detection.common_name || detection.pest_type)}</h4>
                                     <span class="text-xs text-gray-500 dark:text-gray-400 whitespace-nowrap">${timeAgo}</span>
                                 </div>
                                 <div class="flex items-center gap-2 mt-1">
@@ -1492,14 +1501,20 @@ include 'includes/header.php';
                 const pestInfo = data.pest_info;
 
                 // Create modal content
+                const displayName = pestInfo.common_name || alert.pest_type;
+                const scientificName = pestInfo.common_name ? `<div class="text-sm text-gray-500 dark:text-gray-400 italic mt-1">Scientific: ${escapeHtml(alert.pest_type)}</div>` : '';
+                
                 const modalContent = `
                         <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" onclick="this.remove()">
                             <div class="bg-white dark:bg-gray-800 rounded-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
                                 <div class="p-6">
                                     <div class="flex items-center justify-between mb-4">
-                                        <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
-                                            <i class="fas fa-bug text-red-600 mr-2"></i>${escapeHtml(alert.pest_type)}
-                                        </h2>
+                                        <div>
+                                            <h2 class="text-2xl font-bold text-gray-900 dark:text-white">
+                                                <i class="fas fa-bug text-red-600 mr-2"></i>${escapeHtml(displayName)}
+                                            </h2>
+                                            ${scientificName}
+                                        </div>
                                         <button onclick="this.closest('.fixed').remove()" class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
                                             <i class="fas fa-times text-2xl"></i>
                                         </button>
@@ -1529,12 +1544,35 @@ include 'includes/header.php';
                                             </div>
                                         ` : ''}
                                         
+                                        ${pestInfo.economic_threshold ? `
+                                            <div class="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg border-2 border-yellow-400 dark:border-yellow-600">
+                                                <h3 class="font-semibold text-yellow-900 dark:text-yellow-200 mb-2 flex items-center">
+                                                    <i class="fas fa-exclamation-triangle mr-2"></i>Economic Threshold
+                                                </h3>
+                                                <p class="text-yellow-800 dark:text-yellow-300 text-sm font-medium">
+                                                    Take action when: <span class="font-bold">${escapeHtml(pestInfo.economic_threshold)}</span>
+                                                </p>
+                                                <p class="text-yellow-700 dark:text-yellow-400 text-xs mt-1">
+                                                    This is the population level at which treatment becomes economically justified
+                                                </p>
+                                            </div>
+                                        ` : ''}
+                                        
                                         <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg border border-blue-200 dark:border-blue-800">
                                             <h3 class="font-semibold text-blue-900 dark:text-blue-200 mb-2 flex items-center">
                                                 <i class="fas fa-clipboard-list mr-2"></i>Suggested Actions
                                             </h3>
                                             <p class="text-blue-800 dark:text-blue-300 text-sm whitespace-pre-line">${escapeHtml(pestInfo.actions)}</p>
                                         </div>
+                                        
+                                        ${pestInfo.remarks ? `
+                                            <div class="bg-gray-50 dark:bg-gray-700 p-3 rounded-lg border-l-4 border-gray-400 dark:border-gray-500">
+                                                <h3 class="font-semibold text-gray-900 dark:text-white text-sm mb-1 flex items-center">
+                                                    <i class="fas fa-info-circle mr-2"></i>Additional Notes
+                                                </h3>
+                                                <p class="text-gray-700 dark:text-gray-300 text-xs">${escapeHtml(pestInfo.remarks)}</p>
+                                            </div>
+                                        ` : ''}
                                         
                                         <div class="flex gap-3">
                                             ${!alert.is_read ? `
