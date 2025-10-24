@@ -186,6 +186,7 @@ INSERT INTO pest_config (pest_name, common_name, pest_type, severity, descriptio
 -- ============================================================================
 -- VERIFICATION
 -- ============================================================================
+<<<<<<< HEAD
 
 -- Show all tables
 -- SHOW TABLES;
@@ -194,6 +195,8 @@ INSERT INTO pest_config (pest_name, common_name, pest_type, severity, descriptio
 -- DESCRIBE pest_alerts;
 -- DESCRIBE pest_config;
 
+=======
+>>>>>>> af2e8ac91ca8a764fa2dca1b89d79bda81b42fa0
 -- ============================================================================
 -- Setup complete!
 -- ============================================================================

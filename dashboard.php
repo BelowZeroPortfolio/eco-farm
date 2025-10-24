@@ -33,13 +33,13 @@ function getCurrentSensorReadings()
     try {
         require_once 'includes/arduino-api.php';
         $arduino = new ArduinoBridge();
-        
+
         // Get real-time Arduino data
         $arduinoData = null;
         if ($arduino->isHealthy()) {
             $arduinoData = $arduino->getAllSensorData();
         }
-        
+
         // Get thresholds from database (from sensors table)
         $pdo = getDatabaseConnection();
         $stmt = $pdo->query("
@@ -48,7 +48,7 @@ function getCurrentSensorReadings()
             WHERE sensor_name LIKE 'Arduino%'
             GROUP BY sensor_type
         ");
-        
+
         $thresholds = [];
         while ($row = $stmt->fetch()) {
             $thresholds[$row['sensor_type']] = [
@@ -57,7 +57,7 @@ function getCurrentSensorReadings()
                 'unit' => $row['sensor_type'] === 'temperature' ? '°C' : '%'
             ];
         }
-        
+
         // Set defaults if not found in database
         if (!isset($thresholds['temperature'])) {
             $thresholds['temperature'] = ['min' => 20, 'max' => 28, 'unit' => '°C'];
@@ -68,22 +68,22 @@ function getCurrentSensorReadings()
         if (!isset($thresholds['soil_moisture'])) {
             $thresholds['soil_moisture'] = ['min' => 40, 'max' => 60, 'unit' => '%'];
         }
-        
+
         $readings = [];
-        
+
         foreach ($thresholds as $type => $threshold) {
             $value = null;
             $status = 'offline';
             $remark = 'No data available';
-            
+
             if ($arduinoData && isset($arduinoData[$type]['value'])) {
                 $value = $arduinoData[$type]['value'];
                 $status = $arduinoData[$type]['status'] ?? 'online';
-                
+
                 // Generate dynamic remarks based on thresholds
                 $remark = generateSensorRemark($type, $value, $threshold);
             }
-            
+
             $readings[] = [
                 'sensor_type' => $type,
                 'avg_value' => $value ?? 0,
@@ -96,9 +96,8 @@ function getCurrentSensorReadings()
                 'trend' => 'stable'
             ];
         }
-        
+
         return $readings;
-        
     } catch (Exception $e) {
         error_log("Error getting sensor readings: " . $e->getMessage());
         // Return fallback data
@@ -146,7 +145,7 @@ function generateSensorRemark($type, $value, $threshold)
     $min = $threshold['min'];
     $max = $threshold['max'];
     $unit = $threshold['unit'];
-    
+
     $remarks = [
         'temperature' => [
             'optimal' => "Temperature is optimal at {$value}{$unit}. Perfect for crop growth.",
@@ -170,7 +169,7 @@ function generateSensorRemark($type, $value, $threshold)
             'critical_low' => "⚠️ CRITICAL: Soil is too dry at {$value}{$unit}! Irrigate immediately to prevent wilting."
         ]
     ];
-    
+
     // Determine status
     if ($value >= $min && $value <= $max) {
         return $remarks[$type]['optimal'];
@@ -335,7 +334,7 @@ include 'includes/navigation.php';
     <!-- Stats Cards -->
     <div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">
         <!-- Arduino Temperature -->
-        <?php 
+        <?php
         $tempReading = null;
         foreach ($sensorReadings as $reading) {
             if ($reading['sensor_type'] === 'temperature') {
@@ -354,7 +353,7 @@ include 'includes/navigation.php';
                     <?php echo number_format($tempReading['avg_value'], 1); ?>°C
                 </div>
                 <div class="text-white/90 text-xs mt-1" style="line-height: 1.2;">
-                    <?php 
+                    <?php
                     // Show short remark
                     if (strpos($tempReading['remark'], 'optimal') !== false) {
                         echo '✓ Optimal';
@@ -376,7 +375,7 @@ include 'includes/navigation.php';
         </div>
 
         <!-- Arduino Humidity -->
-        <?php 
+        <?php
         $humReading = null;
         foreach ($sensorReadings as $reading) {
             if ($reading['sensor_type'] === 'humidity') {
@@ -395,7 +394,7 @@ include 'includes/navigation.php';
                     <?php echo number_format($humReading['avg_value'], 1); ?>%
                 </div>
                 <div class="text-white/90 text-xs mt-1" style="line-height: 1.2;">
-                    <?php 
+                    <?php
                     // Show short remark
                     if (strpos($humReading['remark'], 'optimal') !== false) {
                         echo '✓ Optimal';
@@ -417,7 +416,7 @@ include 'includes/navigation.php';
         </div>
 
         <!-- Arduino Soil Moisture -->
-        <?php 
+        <?php
         $soilReading = null;
         foreach ($sensorReadings as $reading) {
             if ($reading['sensor_type'] === 'soil_moisture') {
@@ -436,7 +435,7 @@ include 'includes/navigation.php';
                     <?php echo number_format($soilReading['avg_value'], 1); ?>%
                 </div>
                 <div class="text-white/90 text-xs mt-1" style="line-height: 1.2;">
-                    <?php 
+                    <?php
                     // Show short remark
                     if (strpos($soilReading['remark'], 'optimal') !== false) {
                         echo '✓ Optimal';
@@ -554,7 +553,7 @@ include 'includes/navigation.php';
                 const sensorData = {
                     temperature: {
                         data: [
-                            <?php 
+                            <?php
                             $tempReading = null;
                             foreach ($sensorReadings as $r) {
                                 if ($r['sensor_type'] === 'temperature') {
@@ -578,7 +577,7 @@ include 'includes/navigation.php';
                     },
                     humidity: {
                         data: [
-                            <?php 
+                            <?php
                             $humReading = null;
                             foreach ($sensorReadings as $r) {
                                 if ($r['sensor_type'] === 'humidity') {
@@ -602,7 +601,7 @@ include 'includes/navigation.php';
                     },
                     soil_moisture: {
                         data: [
-                            <?php 
+                            <?php
                             $soilReading = null;
                             foreach ($sensorReadings as $r) {
                                 if ($r['sensor_type'] === 'soil_moisture') {
@@ -993,13 +992,13 @@ include 'includes/navigation.php';
                             <a href="pest_config.php" class="text-blue-600 hover:text-blue-700 text-xs font-medium">Manage</a>
                         <?php endif; ?>
                     </div>
-                    
+
                     <div class="space-y-2">
                         <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded-lg">
                             <span class="text-xs text-gray-600 dark:text-gray-400">Total Pests</span>
                             <span class="text-sm font-bold text-gray-900 dark:text-white"><?php echo $pestStats['total']; ?></span>
                         </div>
-                        
+
                         <div class="grid grid-cols-2 gap-2 text-xs">
                             <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
                                 <div class="flex items-center justify-between">
@@ -1026,7 +1025,7 @@ include 'includes/navigation.php';
                                 </div>
                             </div>
                         </div>
-                        
+
                         <div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700">
                             <div class="flex items-center justify-between text-xs">
                                 <span class="text-gray-600 dark:text-gray-400">Active Pests</span>
@@ -1035,7 +1034,7 @@ include 'includes/navigation.php';
                                 </span>
                             </div>
                         </div>
-                        
+
                         <div class="mt-2 p-2 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
                             <p class="text-xs text-blue-800 dark:text-blue-300">
                                 <i class="fas fa-info-circle mr-1"></i>
