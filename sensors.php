@@ -689,17 +689,84 @@ function sortTable(columnIndex) {
 
 // Real-time updates if Arduino is connected
 <?php if ($arduinoHealthy): ?>
-setInterval(() => {
+let realTimeUpdateInterval;
+let lastRealTimeUpdate = 0;
+
+function updateRealTimeData() {
     fetch('arduino_sync.php?action=get_all')
         .then(response => response.json())
         .then(data => {
             if (data.success && data.data) {
-                console.log('Arduino data updated:', data.data);
-                // Could update stats cards here in real-time
+                console.log('Real-time Arduino data:', data.data);
+                
+                // Update real-time indicators
+                updateRealTimeIndicators(data.data);
+                
+                // Update timestamp
+                const timestampElement = document.getElementById('realtime-timestamp');
+                if (timestampElement) {
+                    timestampElement.textContent = 'Last update: ' + new Date().toLocaleTimeString();
+                }
+                
+                lastRealTimeUpdate = Date.now();
             }
         })
-        .catch(error => console.log('Arduino update failed:', error));
-}, 10000); // Update every 10 seconds
+        .catch(error => {
+            console.log('Arduino update failed:', error);
+            
+            // Show connection error
+            const timestampElement = document.getElementById('realtime-timestamp');
+            if (timestampElement) {
+                timestampElement.textContent = 'Connection error - ' + new Date().toLocaleTimeString();
+                timestampElement.className = 'text-xs text-red-500 dark:text-red-400';
+            }
+        });
+}
+
+function updateRealTimeIndicators(sensorData) {
+    // Update real-time values in the statistics cards
+    Object.keys(sensorData).forEach(sensorType => {
+        const data = sensorData[sensorType];
+        if (data.value !== undefined) {
+            // Find and update the corresponding stat card
+            const statCards = document.querySelectorAll('.bg-white.dark\\:bg-gray-800.border');
+            statCards.forEach(card => {
+                const typeText = card.textContent.toLowerCase();
+                if (typeText.includes(sensorType.replace('_', ' '))) {
+                    // Update the average value display
+                    const avgElement = card.querySelector('.font-bold.text-gray-900.dark\\:text-white');
+                    if (avgElement) {
+                        const unit = sensorType === 'temperature' ? '°C' : '%';
+                        avgElement.innerHTML = `${parseFloat(data.value).toFixed(1)}${unit} <span class="text-xs text-green-500">●</span>`;
+                    }
+                }
+            });
+        }
+    });
+}
+
+// Start real-time updates
+realTimeUpdateInterval = setInterval(updateRealTimeData, 5000); // Update every 5 seconds
+updateRealTimeData(); // Initial update
+
+// Add real-time status indicator
+document.addEventListener('DOMContentLoaded', function() {
+    // Add real-time indicator to the page
+    const filtersDiv = document.querySelector('.bg-white.dark\\:bg-gray-800.border.border-gray-200.dark\\:border-gray-700.rounded-lg.p-3.mb-3');
+    if (filtersDiv) {
+        const realTimeIndicator = document.createElement('div');
+        realTimeIndicator.className = 'flex items-center justify-between mt-2 pt-2 border-t border-gray-200 dark:border-gray-600';
+        realTimeIndicator.innerHTML = `
+            <div class="flex items-center gap-2">
+                <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span class="text-xs text-gray-600 dark:text-gray-400">Real-time Arduino data</span>
+            </div>
+            <span id="realtime-timestamp" class="text-xs text-gray-500 dark:text-gray-400">Connecting...</span>
+        `;
+        filtersDiv.appendChild(realTimeIndicator);
+    }
+});
+
 <?php endif; ?>
 </script>
 

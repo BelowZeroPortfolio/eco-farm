@@ -503,7 +503,7 @@ include 'includes/header.php';
                             <span class="text-sm font-medium">AI Detection: ACTIVE</span>
                         </div>
                         <div class="text-xs text-gray-300">
-                            Model: YOLO | Scanning every 5 secolnds
+                            Model: YOLO | Scanning every 5 seconds
                         </div>
                     </div>
 

@@ -188,11 +188,11 @@ INSERT INTO pest_config (pest_name, common_name, pest_type, severity, descriptio
 -- ============================================================================
 
 -- Show all tables
-SHOW TABLES;
+-- SHOW TABLES;
 
 -- Show key table structures
-DESCRIBE pest_alerts;
-DESCRIBE pest_config;
+-- DESCRIBE pest_alerts;
+-- DESCRIBE pest_config;
 
 -- ============================================================================
 -- Setup complete!

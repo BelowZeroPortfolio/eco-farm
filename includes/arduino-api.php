@@ -1,3 +1,4 @@
+
 <?php
 /**
  * Arduino Bridge API Client
@@ -114,6 +115,7 @@ class ArduinoBridge
 
             // Check if enough time has passed since last reading (respects interval setting)
             if (!$this->shouldLogReading($sensorId)) {
+                error_log("storeSensorReading: Skipping {$sensorType} - interval not reached");
                 return false; // Skip logging, interval not reached
             }
 
@@ -126,6 +128,8 @@ class ArduinoBridge
             if (!$stmt->execute([$sensorId, $value, $unit])) {
                 throw new Exception("Failed to insert sensor reading");
             }
+            
+            error_log("storeSensorReading: Successfully logged {$sensorType} = {$value}{$unit}");
             
             // Update sensor last reading time and status
             $updateStmt = $pdo->prepare("
@@ -160,9 +164,11 @@ class ArduinoBridge
             // Get logging interval from settings (in minutes)
             $interval = $this->getLoggingInterval();
             
-            // Get last reading time for this sensor
+            // Get last reading time for this sensor using MySQL's time functions
             $stmt = $pdo->prepare("
-                SELECT MAX(recorded_at) as last_reading 
+                SELECT 
+                    MAX(recorded_at) as last_reading,
+                    TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed
                 FROM sensor_readings 
                 WHERE sensor_id = ?
             ");
@@ -171,16 +177,31 @@ class ArduinoBridge
             
             // If no previous reading, allow logging
             if (!$result || !$result['last_reading']) {
+                error_log("shouldLogReading: No previous reading found, allowing log");
                 return true;
             }
             
-            // Calculate time difference in minutes
-            $lastReading = strtotime($result['last_reading']);
-            $now = time();
-            $minutesPassed = ($now - $lastReading) / 60;
+            // Get seconds passed from MySQL calculation
+            $secondsPassed = intval($result['seconds_passed']);
             
-            // Check if interval has passed
-            return $minutesPassed >= $interval;
+            // Convert interval from minutes to seconds
+            $intervalSeconds = $interval * 60;
+            
+            // Check if interval has passed (with 1 second tolerance for timing issues)
+            $shouldLog = $secondsPassed >= ($intervalSeconds - 1);
+            
+            // Debug logging for small intervals
+            if ($interval <= 1) {
+                error_log(sprintf(
+                    "shouldLogReading [sensor_id=%d]: %d seconds passed, need %.1f seconds, result=%s",
+                    $sensorId,
+                    $secondsPassed,
+                    $intervalSeconds,
+                    $shouldLog ? 'ALLOW' : 'SKIP'
+                ));
+            }
+            
+            return $shouldLog;
             
         } catch (Exception $e) {
             error_log("Error checking logging interval: " . $e->getMessage());
