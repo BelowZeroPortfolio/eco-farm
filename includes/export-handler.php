@@ -1430,7 +1430,7 @@ class ExportHandler
             $resolutionRate = count($data) > 0 ? ($resolvedCount / count($data)) * 100 : 0;
 
             $analysis = "Pest monitoring analysis shows " . count($data) . " total alerts during the reporting period. ";
-            $analysis .= "Critical alerts account for {$criticalCount} incidents (" . number_format(($criticalCount / count($data)) * 100, 1) . "%). ";
+            $analysis .= "Critical alerts account for {$criticalCount}  (" . number_format(($criticalCount / count($data)) * 100, 1) . "%). ";
             $analysis .= "Resolution rate is " . number_format($resolutionRate, 1) . "% with {$resolvedCount} alerts successfully resolved. ";
 
             if (!empty($pestTypes)) {

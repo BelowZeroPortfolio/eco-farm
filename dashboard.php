@@ -162,29 +162,45 @@ function generateSensorRemark($type, $value, $threshold)
             'critical_low' => "⚠️ CRITICAL: Humidity too low at {$value}{$unit}! Severe water stress risk."
         ],
         'soil_moisture' => [
-            'optimal' => "Soil moisture is optimal at {$value}{$unit}. Good water availability for roots.",
-            'high' => "Soil moisture is high at {$value}{$unit}. Risk of root rot. Reduce irrigation. Optimal: {$min}-{$max}{$unit}.",
-            'low' => "Soil moisture is low at {$value}{$unit}. Plants need watering soon. Optimal: {$min}-{$max}{$unit}.",
-            'critical_high' => "⚠️ CRITICAL: Soil is waterlogged at {$value}{$unit}! Stop irrigation immediately. Risk of root rot.",
-            'critical_low' => "⚠️ CRITICAL: Soil is too dry at {$value}{$unit}! Irrigate immediately to prevent wilting."
+            'optimal' => "Soil moisture is optimal at {$value}{$unit}. Perfect for crop growth.",
+            'high' => "Soil is very wet at {$value}{$unit}. Risk of overwatering. Reduce irrigation.",
+            'low' => "Soil is dry at {$value}{$unit}. Plants need watering soon.",
+            'critical_high' => "⚠️ CRITICAL: Soil is saturated at {$value}{$unit}! Stop irrigation immediately. Risk of root rot and flooding.",
+            'critical_low' => "⚠️ CRITICAL: Soil is very dry at {$value}{$unit}! Irrigate immediately to prevent wilting."
         ]
     ];
 
-    // Determine status
-    if ($value >= $min && $value <= $max) {
-        return $remarks[$type]['optimal'];
-    } elseif ($value > $max) {
-        // High
-        if ($value > $max + ($max - $min) * 0.5) {
-            return $remarks[$type]['critical_high'];
+    // Determine status based on sensor type
+    if ($type === 'soil_moisture') {
+        // Soil moisture: 0% = very dry, 100% = very wet
+        if ($value >= 41 && $value <= 60) {
+            return $remarks[$type]['optimal']; // Moderate - ideal range
+        } elseif ($value >= 81) {
+            return $remarks[$type]['critical_high']; // Very wet/saturated
+        } elseif ($value >= 61) {
+            return $remarks[$type]['high']; // Moist - wet but not waterlogged
+        } elseif ($value <= 20) {
+            return $remarks[$type]['critical_low']; // Very dry - needs immediate watering
+        } else {
+            return $remarks[$type]['low']; // Dry - needs watering soon
         }
-        return $remarks[$type]['high'];
     } else {
-        // Low
-        if ($value < $min - ($max - $min) * 0.5) {
-            return $remarks[$type]['critical_low'];
+        // Temperature and humidity use original logic
+        if ($value >= $min && $value <= $max) {
+            return $remarks[$type]['optimal'];
+        } elseif ($value > $max) {
+            // High
+            if ($value > $max + ($max - $min) * 0.5) {
+                return $remarks[$type]['critical_high'];
+            }
+            return $remarks[$type]['high'];
+        } else {
+            // Low
+            if ($value < $min - ($max - $min) * 0.5) {
+                return $remarks[$type]['critical_low'];
+            }
+            return $remarks[$type]['low'];
         }
-        return $remarks[$type]['low'];
     }
 }
 
@@ -345,7 +361,7 @@ include 'includes/navigation.php';
         ?>
         <div class="bg-red-600 text-white rounded-xl p-3" id="temperature-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-white/80 text-xs font-medium">Arduino Temp</h3>
+                <h3 class="text-white/80 text-xs font-medium">Temperature</h3>
                 <i class="fas fa-thermometer-half text-xs"></i>
             </div>
             <?php if ($tempReading && $tempReading['avg_value'] > 0): ?>
@@ -386,7 +402,7 @@ include 'includes/navigation.php';
         ?>
         <div class="bg-blue-600 text-white rounded-xl p-3" id="humidity-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-white/80 text-xs font-medium">Arduino Humidity</h3>
+                <h3 class="text-white/80 text-xs font-medium">Humidity</h3>
                 <i class="fas fa-tint text-xs"></i>
             </div>
             <?php if ($humReading && $humReading['avg_value'] > 0): ?>
@@ -427,7 +443,7 @@ include 'includes/navigation.php';
         ?>
         <div class="bg-green-600 text-white rounded-xl p-3" id="soil-card">
             <div class="flex items-center justify-between mb-2">
-                <h3 class="text-white/80 text-xs font-medium">Arduino Soil</h3>
+                <h3 class="text-white/80 text-xs font-medium">Soil Moisture</h3>
                 <i class="fas fa-seedling text-xs"></i>
             </div>
             <?php if ($soilReading && $soilReading['avg_value'] > 0): ?>
@@ -436,15 +452,19 @@ include 'includes/navigation.php';
                 </div>
                 <div class="text-white/90 text-xs mt-1" style="line-height: 1.2;">
                     <?php
-                    // Show short remark
+                    // Show short remark for soil moisture
                     if (strpos($soilReading['remark'], 'optimal') !== false) {
                         echo '✓ Optimal';
                     } elseif (strpos($soilReading['remark'], 'CRITICAL') !== false) {
-                        echo '⚠ Critical!';
-                    } elseif (strpos($soilReading['remark'], 'high') !== false) {
-                        echo '↑ Too High';
-                    } elseif (strpos($soilReading['remark'], 'low') !== false) {
-                        echo '↓ Too Low';
+                        if (strpos($soilReading['remark'], 'saturated') !== false) {
+                            echo '⚠ Flooded!';
+                        } else {
+                            echo '⚠ Very Dry!';
+                        }
+                    } elseif (strpos($soilReading['remark'], 'very wet') !== false) {
+                        echo '💧 Very Wet';
+                    } elseif (strpos($soilReading['remark'], 'dry') !== false) {
+                        echo '🏜️ Dry';
                     } else {
                         echo $soilReading['status'] === 'online' ? 'Live' : 'Database';
                     }
