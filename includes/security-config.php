@@ -6,27 +6,77 @@
  * Centralized security settings and policies
  */
 
+// Load environment configuration
+require_once __DIR__ . '/../config/env.php';
+
 /**
  * Security Configuration Class
  */
 class SecurityConfig
 {
     /**
-     * Session security settings
+     * Session security settings (loaded from .env)
      */
+    public static function getSessionTimeout() {
+        return Env::getInt('SESSION_TIMEOUT', 3600);
+    }
+    
+    public static function getSessionRegenerateInterval() {
+        return Env::getInt('SESSION_REGENERATE_INTERVAL', 300);
+    }
+    
+    public static function getSessionName() {
+        return Env::get('SESSION_NAME', 'FARM_MONITOR_SESSION');
+    }
+
+    // Legacy constants for backward compatibility
     const SESSION_TIMEOUT = 3600; // 1 hour
     const SESSION_REGENERATE_INTERVAL = 300; // 5 minutes
     const SESSION_NAME = 'FARM_MONITOR_SESSION';
 
     /**
-     * CSRF protection settings
+     * CSRF protection settings (loaded from .env)
      */
+    public static function getCsrfTokenLifetime() {
+        return Env::getInt('CSRF_TOKEN_LIFETIME', 3600);
+    }
+    
+    public static function getCsrfTokenLength() {
+        return Env::getInt('CSRF_TOKEN_LENGTH', 32);
+    }
+
+    // Legacy constants for backward compatibility
     const CSRF_TOKEN_LIFETIME = 3600; // 1 hour
     const CSRF_TOKEN_LENGTH = 32; // bytes
 
     /**
-     * Rate limiting settings
+     * Rate limiting settings (loaded from .env)
      */
+    public static function getRateLimitLoginAttempts() {
+        return Env::getInt('RATE_LIMIT_LOGIN_ATTEMPTS', 5);
+    }
+    
+    public static function getRateLimitLoginWindow() {
+        return Env::getInt('RATE_LIMIT_LOGIN_WINDOW', 300);
+    }
+    
+    public static function getRateLimitPageRequests() {
+        return Env::getInt('RATE_LIMIT_PAGE_REQUESTS', 60);
+    }
+    
+    public static function getRateLimitPageWindow() {
+        return Env::getInt('RATE_LIMIT_PAGE_WINDOW', 60);
+    }
+    
+    public static function getRateLimitFormSubmissions() {
+        return Env::getInt('RATE_LIMIT_FORM_SUBMISSIONS', 10);
+    }
+    
+    public static function getRateLimitFormWindow() {
+        return Env::getInt('RATE_LIMIT_FORM_WINDOW', 60);
+    }
+
+    // Legacy constants for backward compatibility
     const RATE_LIMIT_LOGIN_ATTEMPTS = 5;
     const RATE_LIMIT_LOGIN_WINDOW = 300; // 5 minutes
     const RATE_LIMIT_PAGE_REQUESTS = 60;
@@ -35,8 +85,17 @@ class SecurityConfig
     const RATE_LIMIT_FORM_WINDOW = 60; // 1 minute
 
     /**
-     * File upload security settings
+     * File upload security settings (loaded from .env)
      */
+    public static function getMaxFileSize() {
+        return Env::getInt('MAX_FILE_SIZE', 5242880);
+    }
+    
+    public static function getAllowedFileTypes() {
+        return Env::getArray('ALLOWED_FILE_TYPES', ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'csv', 'xlsx']);
+    }
+
+    // Legacy constants for backward compatibility
     const MAX_FILE_SIZE = 5242880; // 5MB
     const ALLOWED_FILE_TYPES = ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'csv', 'xlsx'];
     const ALLOWED_MIME_TYPES = [
@@ -51,15 +110,49 @@ class SecurityConfig
     ];
 
     /**
-     * Password security settings
+     * Password security settings (loaded from .env)
      */
+    public static function getMinPasswordLength() {
+        return Env::getInt('MIN_PASSWORD_LENGTH', 6);
+    }
+    
+    public static function getPasswordHashCost() {
+        return Env::getInt('PASSWORD_HASH_COST', 12);
+    }
+    
+    public static function getPasswordHashOptions() {
+        return ['cost' => self::getPasswordHashCost()];
+    }
+
+    // Legacy constants for backward compatibility
     const MIN_PASSWORD_LENGTH = 6;
     const PASSWORD_HASH_ALGORITHM = PASSWORD_DEFAULT;
     const PASSWORD_HASH_OPTIONS = ['cost' => 12];
 
     /**
-     * Input validation limits
+     * Input validation limits (loaded from .env)
      */
+    public static function getMaxUsernameLength() {
+        return Env::getInt('MAX_USERNAME_LENGTH', 50);
+    }
+    
+    public static function getMinUsernameLength() {
+        return Env::getInt('MIN_USERNAME_LENGTH', 3);
+    }
+    
+    public static function getMaxEmailLength() {
+        return Env::getInt('MAX_EMAIL_LENGTH', 100);
+    }
+    
+    public static function getMaxInputLength() {
+        return Env::getInt('MAX_INPUT_LENGTH', 1000);
+    }
+    
+    public static function getMaxTextareaLength() {
+        return Env::getInt('MAX_TEXTAREA_LENGTH', 5000);
+    }
+
+    // Legacy constants for backward compatibility
     const MAX_USERNAME_LENGTH = 50;
     const MIN_USERNAME_LENGTH = 3;
     const MAX_EMAIL_LENGTH = 100;

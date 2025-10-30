@@ -45,7 +45,7 @@ echo "\n";
 // Test 4: Check if Flask service is running
 echo "Test 4: Flask service health\n";
 require_once 'YOLODetector2.php';
-$detector = new YOLODetector2('http://127.0.0.1:5000');
+$detector = new YOLODetector2(); // Uses .env config
 
 if ($detector->isHealthy()) {
     echo "✓ Flask service is running and healthy\n";

@@ -1,11 +1,14 @@
 <?php
 
-// Database configuration constants
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'farm_database');
-define('DB_USER', 'root');
-define('DB_PASS', '');
-define('DB_CHARSET', 'utf8mb4');
+// Load environment configuration
+require_once __DIR__ . '/env.php';
+
+// Database configuration constants from .env
+define('DB_HOST', Env::get('DB_HOST', 'localhost'));
+define('DB_NAME', Env::get('DB_NAME', 'farm_database'));
+define('DB_USER', Env::get('DB_USER', 'root'));
+define('DB_PASS', Env::get('DB_PASS', ''));
+define('DB_CHARSET', Env::get('DB_CHARSET', 'utf8mb4'));
 
 /**
  * Get database connection using PDO with enhanced error handling

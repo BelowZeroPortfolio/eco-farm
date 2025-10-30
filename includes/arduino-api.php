@@ -5,14 +5,24 @@
  * Handles communication with the Python Arduino bridge service
  */
 
+// Load environment configuration
+require_once __DIR__ . '/../config/env.php';
+
 class ArduinoBridge
 {
     private $serviceUrl;
     private $timeout;
     private $connectTimeout;
 
-    public function __construct($serviceUrl = 'http://127.0.0.1:5000', $timeout = 5, $connectTimeout = 3)
+    public function __construct($serviceUrl = null, $timeout = 5, $connectTimeout = 3)
     {
+        // Load from .env if not provided
+        if ($serviceUrl === null) {
+            $host = Env::get('ARDUINO_SERVICE_HOST', '127.0.0.1');
+            $port = Env::get('ARDUINO_SERVICE_PORT', '5000');
+            $serviceUrl = "http://{$host}:{$port}";
+        }
+        
         $this->serviceUrl = rtrim($serviceUrl, '/');
         $this->timeout = $timeout;
         $this->connectTimeout = $connectTimeout;

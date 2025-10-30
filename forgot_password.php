@@ -5,7 +5,7 @@
  */
 
 session_start();
-require_once 'config/database.php';
+require_once 'config/database.php'; // This loads config/env.php automatically
 require_once 'logic/forgot_password_logic.php';
 
 $forgotLogic = new ForgotPasswordLogic();
@@ -270,9 +270,9 @@ $email = $_POST['email'] ?? '';
             initializeTheme();
         });
 
-        // Initialize EmailJS
+        // Initialize EmailJS with config from .env
         (function() {
-            emailjs.init('Cxmw0ozgsets5ecRB');
+            emailjs.init('<?php echo Env::get('EMAILJS_PUBLIC_KEY', 'YOUR_PUBLIC_KEY'); ?>');
         })();
 
         <?php if ($message && isset($_SESSION['reset_email_data'])): ?>
@@ -302,7 +302,7 @@ $email = $_POST['email'] ?? '';
             
             console.log('Sending email with params:', templateParams);
             
-            emailjs.send('service_8a7cr67', 'template_9b82x7x', templateParams)
+            emailjs.send('<?php echo Env::get('EMAILJS_SERVICE_ID', 'YOUR_SERVICE_ID'); ?>', '<?php echo Env::get('EMAILJS_TEMPLATE_ID', 'YOUR_TEMPLATE_ID'); ?>', templateParams)
                 .then(function(response) {
                     console.log('✓ Email sent successfully!', response.status, response.text);
                     if (alertDiv) {
@@ -318,7 +318,7 @@ $email = $_POST['email'] ?? '';
                     // Specific error messages
                     if (error.text && error.text.includes('recipients address is empty')) {
                         errorMessage = '⚠️ EmailJS Configuration Error';
-                        helpText = '<br><strong>Fix:</strong> Go to EmailJS Dashboard → Templates → template_9b82x7x → Settings tab → Set "To Email" field to: <code class="bg-yellow-200 px-1 rounded">{{to_email}}</code><br>See FIX_422_ERROR.md for detailed instructions.';
+                        helpText = '<br><strong>Fix:</strong> Go to EmailJS Dashboard → Templates → <?php echo Env::get('EMAILJS_TEMPLATE_ID', 'YOUR_TEMPLATE_ID'); ?> → Settings tab → Set "To Email" field to: <code class="bg-yellow-200 px-1 rounded">{{to_email}}</code><br>See FIX_422_ERROR.md for detailed instructions.';
                     } else if (error.status === 422) {
                         errorMessage = 'Template configuration error (422)';
                         helpText = '<br>Check EmailJS template settings. See FIX_422_ERROR.md';

@@ -4,6 +4,10 @@
  * YOLODetector2 - Flask Service Client
  * Interfaces with Flask-based YOLO detection service
  */
+
+// Load environment configuration
+require_once __DIR__ . '/config/env.php';
+
 class YOLODetector2
 {
     private $serviceUrl;
@@ -13,12 +17,19 @@ class YOLODetector2
     /**
      * Constructor
      * 
-     * @param string $serviceUrl URL of Flask service (default: http://127.0.0.1:5000)
+     * @param string $serviceUrl URL of Flask service (default: from .env or http://127.0.0.1:5000)
      * @param int $timeout Request timeout in seconds (default: 10)
      * @param int $connectTimeout Connection timeout in seconds (default: 5)
      */
-    public function __construct($serviceUrl = 'http://127.0.0.1:5000', $timeout = 10, $connectTimeout = 5)
+    public function __construct($serviceUrl = null, $timeout = 10, $connectTimeout = 5)
     {
+        // Load from .env if not provided
+        if ($serviceUrl === null) {
+            $host = Env::get('YOLO_SERVICE_HOST', '127.0.0.1');
+            $port = Env::get('YOLO_SERVICE_PORT', '5000');
+            $serviceUrl = "http://{$host}:{$port}";
+        }
+        
         $this->serviceUrl = rtrim($serviceUrl, '/');
         $this->timeout = $timeout;
         $this->connectTimeout = $connectTimeout;

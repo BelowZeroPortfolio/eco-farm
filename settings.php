@@ -101,6 +101,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 file_put_contents($envFile, $envContent);
+                
+                // Reload environment variables after update
+                Env::reload();
 
                 $success = 'Notification settings updated successfully!';
                 break;
@@ -180,34 +183,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $currentLanguage = $_SESSION['user_language'] ?? 'en';
 $currentTimezone = $_SESSION['user_timezone'] ?? 'UTC+8';
 
-// Load notification settings from .env file
-$envFile = __DIR__ . '/.env';
-$isEnabled = false;
-$reportTime = '08:00';
-$recipients = '';
-
-try {
-    if (file_exists($envFile)) {
-        $envContent = file_get_contents($envFile);
-        
-        // Parse DAILY_REPORT_ENABLED
-        if (preg_match('/^DAILY_REPORT_ENABLED=(.*)$/m', $envContent, $matches)) {
-            $isEnabled = trim($matches[1]) === 'true';
-        }
-        
-        // Parse DAILY_REPORT_TIME
-        if (preg_match('/^DAILY_REPORT_TIME=(.*)$/m', $envContent, $matches)) {
-            $reportTime = trim($matches[1]);
-        }
-        
-        // Parse DAILY_REPORT_RECIPIENTS
-        if (preg_match('/^DAILY_REPORT_RECIPIENTS=(.*)$/m', $envContent, $matches)) {
-            $recipients = trim($matches[1]);
-        }
-    }
-} catch (Exception $e) {
-    error_log("Error loading notification settings: " . $e->getMessage());
-}
+// Load notification settings from .env using Env class
+$isEnabled = Env::getBool('DAILY_REPORT_ENABLED', false);
+$reportTime = Env::get('DAILY_REPORT_TIME', '08:00');
+$recipients = Env::get('DAILY_REPORT_RECIPIENTS', '');
 
 // Set page title and additional resources
 $pageTitle = 'System Settings - IoT Farm Monitoring System';

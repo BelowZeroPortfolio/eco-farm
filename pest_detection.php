@@ -90,8 +90,8 @@ if ($isAjaxRequest) {
 
                 try {
                     // ===== FLASK SERVICE METHOD (NEW) =====
-                    // Initialize Flask-based YOLO detector
-                    $detector = new YOLODetector2('http://127.0.0.1:5000');
+                    // Initialize Flask-based YOLO detector (uses .env config)
+                    $detector = new YOLODetector2();
 
                     // Check if service is healthy
                     if (!$detector->isHealthy()) {
@@ -382,8 +382,8 @@ if ($isAjaxRequest) {
                 break;
 
             case 'check_service_health':
-                // Check if Flask service is running
-                $detector = new YOLODetector2('http://127.0.0.1:5000');
+                // Check if Flask service is running (uses .env config)
+                $detector = new YOLODetector2();
                 $isHealthy = $detector->isHealthy();
 
                 echo json_encode([
