@@ -440,108 +440,66 @@ include 'includes/header.php';
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <!-- Left Column - Live Feed -->
         <div class="lg:col-span-2 space-y-6">
-            <!-- Live Camera Feed Section -->
-            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden shadow-lg">
-                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-gray-700 dark:to-gray-800">
+            <!-- Pest Detection Control -->
+            <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-lg">
+                <div class="px-6 py-4 border-b border-gray-200 dark:border-gray-700">
                     <div class="flex items-center justify-between">
                         <h3 class="text-lg font-semibold text-gray-900 dark:text-white flex items-center">
                             <i class="fas fa-video text-blue-600 mr-2"></i>
-                            Live Camera Feed
-                            <span id="camera-status" class="ml-3 px-3 py-1 bg-gray-400 text-white text-xs font-medium rounded-full">
-                                STARTING...
-                            </span>
+                            Pest Detection Control
                         </h3>
-                        <div class="flex items-center gap-3">
-                            <span id="camera-name" class="text-sm text-gray-600 dark:text-gray-400"></span>
-                            <button id="camera-settings-btn" onclick="openCameraSettings()" class="px-3 py-2 text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors" title="Camera Settings">
-                                <i class="fas fa-cog"></i>
+                        <span id="yolo-status-indicator" class="px-3 py-1 bg-gray-400 text-white text-xs font-medium rounded-full">
+                            <i class="fas fa-spinner fa-spin mr-1"></i>CHECKING...
+                        </span>
+                    </div>
+                </div>
+                
+                <div class="p-6 space-y-4">
+                    <!-- Service Status -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <i class="fas fa-brain text-purple-600 mr-1"></i>
+                            AI Service Status
+                        </label>
+                        <div id="yolo-status-card" class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
+                            <div class="flex items-center justify-center py-6">
+                                <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                <span class="ml-3 text-gray-600 dark:text-gray-400">Checking YOLO service status...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Camera Selection -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                            <i class="fas fa-camera text-blue-600 mr-1"></i>
+                            Select Camera
+                        </label>
+                        <div class="flex gap-2">
+                            <select id="camera-select" class="flex-1 px-3 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-800 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500">
+                                <option value="">Loading cameras...</option>
+                            </select>
+                            <button onclick="saveCameraConfig()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+                                <i class="fas fa-save mr-2"></i>Save
                             </button>
                         </div>
                     </div>
-                </div>
 
-                <!-- Detection Control Bar -->
-                <div class="px-6 py-3 bg-gray-50 dark:bg-gray-700 border-b border-gray-200 dark:border-gray-600">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-3">
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">AI Pest Detection:</span>
-                            <span id="detection-status" class="px-3 py-1 bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 text-xs font-medium rounded-full">
-                                INACTIVE
-                            </span>
-                        </div>
-                        <div class="flex items-center gap-3">
-                            <button id="start-detection-btn" onclick="startDetection()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg transition-colors">
-                                <i class="fas fa-play mr-2"></i>Start Detection
+                    <!-- Action Buttons -->
+                    <div class="pt-2">
+                        <div class="grid grid-cols-2 gap-3">
+                            <button onclick="openPestMonitorPopup()" class="col-span-2 px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center">
+                                <i class="fas fa-external-link-alt mr-2"></i>Open Pest Monitor
                             </button>
-                            <button id="stop-detection-btn" onclick="stopDetection()" class="hidden px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors">
-                                <i class="fas fa-stop mr-2"></i>Stop Detection
+                            <button id="start-service-btn" onclick="startYoloService()" class="hidden px-4 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors">
+                                <i class="fas fa-play mr-2"></i>Start Service
                             </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="relative bg-black">
-                    <!-- Video Element -->
-                    <video id="video-element" autoplay playsinline class="w-full h-auto" style="transform: scaleX(-1); max-height: 500px;"></video>
-                    <canvas id="capture-canvas" class="hidden"></canvas>
-
-                    <!-- Placeholder when camera is off -->
-                    <div id="camera-placeholder" class="w-full aspect-video flex items-center justify-center bg-gradient-to-br from-gray-800 to-gray-900">
-                        <div class="text-center text-white">
-                            <div class="animate-pulse">
-                                <i class="fas fa-video text-6xl mb-4 text-blue-400"></i>
-                                <h4 class="text-xl font-semibold mb-2">Initializing Camera...</h4>
-                                <p class="text-gray-400">Please wait while we connect to your camera</p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- AI Detection Overlay -->
-                    <div id="ai-overlay" class="hidden absolute top-4 left-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
-                        <div class="flex items-center gap-2 mb-1">
-                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                            <span class="text-sm font-medium">AI Detection: ACTIVE</span>
-                        </div>
-                        <div class="text-xs text-gray-300">
-                            Model: YOLO | Scanning every 5 seconds
-                        </div>
-                    </div>
-
-                    <!-- Stats Overlay -->
-                    <div id="stats-overlay" class="hidden absolute top-4 right-4 bg-black bg-opacity-75 text-white px-4 py-2 rounded-lg">
-                        <div class="text-xs space-y-1">
-                            <div class="flex justify-between gap-4">
-                                <span>Scans:</span>
-                                <span class="font-medium" id="scan-count">0</span>
-                            </div>
-                            <div class="flex justify-between gap-4">
-                                <span>Detections:</span>
-                                <span class="font-medium text-yellow-400" id="detection-count">0</span>
-                            </div>
-                            <div class="flex justify-between gap-4">
-                                <span>Uptime:</span>
-                                <span class="font-medium text-green-400" id="uptime">00:00</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Status Bar -->
-                <div class="bg-gray-50 dark:bg-gray-700 px-6 py-3 border-t border-gray-200 dark:border-gray-600">
-                    <div class="flex items-center justify-between text-sm">
-                        <div class="flex items-center gap-4">
-                            <div class="flex items-center gap-2">
-                                <div id="stream-status-dot" class="w-2 h-2 bg-gray-400 rounded-full"></div>
-                                <span class="text-gray-600 dark:text-gray-400">Stream: <span id="stream-status" class="font-medium text-gray-900 dark:text-white">Inactive</span></span>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <i class="fas fa-brain text-purple-600 dark:text-purple-400"></i>
-                                <span class="text-gray-600 dark:text-gray-400">AI: <span id="ai-status" class="font-medium text-gray-900 dark:text-white">Standby</span></span>
-                            </div>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-gray-600 dark:text-gray-400">Last Scan:</span>
-                            <span id="last-scan" class="font-medium text-gray-900 dark:text-white">Never</span>
+                            <button id="stop-service-btn" onclick="stopYoloService()" class="hidden px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors">
+                                <i class="fas fa-stop mr-2"></i>Stop Service
+                            </button>
+                            <button onclick="refreshYoloStatus()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+                                <i class="fas fa-sync-alt mr-2"></i>Refresh
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -644,21 +602,21 @@ include 'includes/header.php';
                 <div class="space-y-3">
                     <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div class="flex items-center gap-2">
-                            <div class="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
-                                <i class="fas fa-video text-blue-600 dark:text-blue-400 text-sm"></i>
-                            </div>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">Camera</span>
-                        </div>
-                        <span id="camera-status-badge" class="text-xs font-bold text-gray-600 dark:text-gray-400">Not Connected</span>
-                    </div>
-                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                        <div class="flex items-center gap-2">
                             <div class="w-8 h-8 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center">
                                 <i class="fas fa-brain text-purple-600 dark:text-purple-400 text-sm"></i>
                             </div>
-                            <span class="text-sm font-medium text-gray-900 dark:text-white">AI Model</span>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">YOLO AI Service</span>
                         </div>
-                        <span class="text-xs font-bold text-green-600 dark:text-green-400">Ready</span>
+                        <span id="yolo-status-badge" class="text-xs font-bold text-gray-600 dark:text-gray-400">Checking...</span>
+                    </div>
+                    <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
+                        <div class="flex items-center gap-2">
+                            <div class="w-8 h-8 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                                <i class="fas fa-video text-blue-600 dark:text-blue-400 text-sm"></i>
+                            </div>
+                            <span class="text-sm font-medium text-gray-900 dark:text-white">Camera Config</span>
+                        </div>
+                        <span id="camera-config-badge" class="text-xs font-bold text-gray-600 dark:text-gray-400">Not Set</span>
                     </div>
                     <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700 rounded-lg">
                         <div class="flex items-center gap-2">
@@ -681,23 +639,23 @@ include 'includes/header.php';
                 <ul class="space-y-2 text-xs text-blue-800 dark:text-blue-300">
                     <li class="flex items-start gap-2">
                         <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
-                        <span>Select your webcam from the dropdown</span>
+                        <span>Configure your default camera for monitoring</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
-                        <span>Click "Start Detection" to begin monitoring</span>
+                        <span>Click "Open Pest Monitor" to start detection</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
-                        <span>AI scans frames every 5 seconds</span>
+                        <span>Monitor runs in separate popup window</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
-                        <span>Detections are logged automatically</span>
+                        <span>View detection logs and statistics here</span>
                     </li>
                     <li class="flex items-start gap-2">
                         <i class="fas fa-check-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
-                        <span>Rate-limited to prevent duplicates</span>
+                        <span>YOLO service status is monitored automatically</span>
                     </li>
                 </ul>
             </div>
@@ -711,328 +669,297 @@ include 'includes/header.php';
     // GLOBAL STATE
     // ============================================================================
 
-    let currentStream = null;
-    let detectionInterval = null;
-    let isDetecting = false;
     let selectedDeviceId = null;
-    let scanCount = 0;
-    let detectionCount = 0;
-    let startTime = null;
-    let uptimeInterval = null;
-
-    // DOM Elements
-    const videoElement = document.getElementById('video-element');
-    const captureCanvas = document.getElementById('capture-canvas');
-    const stopBtn = document.getElementById('stop-detection-btn');
-    const cameraPlaceholder = document.getElementById('camera-placeholder');
-    const liveIndicator = document.getElementById('live-indicator');
-    const aiOverlay = document.getElementById('ai-overlay');
-    const statsOverlay = document.getElementById('stats-overlay');
+    let yoloStatusCheckInterval = null;
 
     // ============================================================================
-    // CAMERA MANAGEMENT
+    // YOLO SERVICE STATUS
     // ============================================================================
-
-
 
     /**
-     * Start camera stream with specified device ID
+     * Check YOLO service health status
      */
-    async function startCamera(deviceId) {
+    async function checkYoloStatus() {
         try {
-            // Stop existing stream if any
-            stopCamera();
-
-            // Request camera stream
-            const constraints = {
-                video: {
-                    deviceId: deviceId ? {
-                        exact: deviceId
-                    } : undefined,
-                    width: {
-                        ideal: 1280
-                    },
-                    height: {
-                        ideal: 720
-                    }
-                }
-            };
-
-            currentStream = await navigator.mediaDevices.getUserMedia(constraints);
-            videoElement.srcObject = currentStream;
-
-            // Hide placeholder, show video
-            cameraPlaceholder.classList.add('hidden');
-            videoElement.classList.remove('hidden');
-
-            // Update status
-            document.getElementById('stream-status-dot').classList.remove('bg-gray-400');
-            document.getElementById('stream-status-dot').classList.add('bg-green-500', 'animate-pulse');
-            document.getElementById('stream-status').textContent = 'Active';
-            document.getElementById('camera-status-badge').textContent = 'Connected';
-            document.getElementById('camera-status-badge').classList.remove('text-gray-600');
-            document.getElementById('camera-status-badge').classList.add('text-green-600');
-
-            console.log('Camera started successfully');
+            const data = await apiCall('check_service_health', {}, 'GET');
+            
+            const indicator = document.getElementById('yolo-status-indicator');
+            const badge = document.getElementById('yolo-status-badge');
+            const statusCard = document.getElementById('yolo-status-card');
+            const startBtn = document.getElementById('start-service-btn');
+            const stopBtn = document.getElementById('stop-service-btn');
+            
+            if (data.success && data.healthy) {
+                // Service is running
+                indicator.innerHTML = '<i class="fas fa-check-circle mr-1"></i>ONLINE';
+                indicator.className = 'px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-full';
+                
+                badge.textContent = 'Online';
+                badge.className = 'text-xs font-bold text-green-600 dark:text-green-400';
+                
+                statusCard.innerHTML = `
+                    <div class="flex items-center gap-3 text-green-600 dark:text-green-400">
+                        <div class="w-12 h-12 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                            <i class="fas fa-check-circle text-2xl"></i>
+                        </div>
+                        <div>
+                            <div class="font-semibold text-gray-900 dark:text-white">Service Running</div>
+                            <div class="text-sm text-gray-600 dark:text-gray-400">YOLO AI detection service is online and ready</div>
+                        </div>
+                    </div>
+                `;
+                
+                // Show stop button, hide start button
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+            } else {
+                // Service is not running
+                indicator.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>OFFLINE';
+                indicator.className = 'px-3 py-1 bg-red-600 text-white text-xs font-medium rounded-full';
+                
+                badge.textContent = 'Offline';
+                badge.className = 'text-xs font-bold text-red-600 dark:text-red-400';
+                
+                statusCard.innerHTML = `
+                    <div class="space-y-3">
+                        <div class="flex items-center gap-3 text-red-600 dark:text-red-400">
+                            <div class="w-12 h-12 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                                <i class="fas fa-exclamation-triangle text-2xl"></i>
+                            </div>
+                            <div>
+                                <div class="font-semibold text-gray-900 dark:text-white">Service Offline</div>
+                                <div class="text-sm text-gray-600 dark:text-gray-400">YOLO AI detection service is not running</div>
+                            </div>
+                        </div>
+                        <div class="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg p-3">
+                            <p class="text-sm text-yellow-800 dark:text-yellow-200">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                Click "Start Service" below to launch the YOLO detection service.
+                            </p>
+                        </div>
+                    </div>
+                `;
+                
+                // Show start button, hide stop button
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+            }
         } catch (error) {
-            console.error('Error starting camera:', error);
-            showToast('Failed to start camera. Please check your camera connection.', 'error');
+            console.error('Error checking YOLO status:', error);
+            
+            const indicator = document.getElementById('yolo-status-indicator');
+            const badge = document.getElementById('yolo-status-badge');
+            const statusCard = document.getElementById('yolo-status-card');
+            const startBtn = document.getElementById('start-service-btn');
+            const stopBtn = document.getElementById('stop-service-btn');
+            
+            indicator.innerHTML = '<i class="fas fa-question-circle mr-1"></i>ERROR';
+            indicator.className = 'px-3 py-1 bg-gray-600 text-white text-xs font-medium rounded-full';
+            
+            badge.textContent = 'Error';
+            badge.className = 'text-xs font-bold text-gray-600 dark:text-gray-400';
+            
+            statusCard.innerHTML = `
+                <div class="flex items-center gap-3 text-gray-600 dark:text-gray-400">
+                    <div class="w-12 h-12 bg-gray-100 dark:bg-gray-700 rounded-full flex items-center justify-center">
+                        <i class="fas fa-question-circle text-2xl"></i>
+                    </div>
+                    <div>
+                        <div class="font-semibold text-gray-900 dark:text-white">Status Unknown</div>
+                        <div class="text-sm text-gray-600 dark:text-gray-400">Unable to check service status</div>
+                    </div>
+                </div>
+            `;
+            
+            // Show start button by default
+            startBtn.classList.remove('hidden');
+            stopBtn.classList.add('hidden');
         }
     }
 
     /**
-     * Stop the current camera stream
+     * Refresh YOLO status manually
      */
-    function stopCamera() {
-        if (currentStream) {
-            currentStream.getTracks().forEach(track => track.stop());
-            currentStream = null;
-            videoElement.srcObject = null;
-        }
-
-        // Show placeholder, hide video
-        videoElement.classList.add('hidden');
-        cameraPlaceholder.classList.remove('hidden');
-
-        // Update status
-        document.getElementById('stream-status-dot').classList.remove('bg-green-500', 'animate-pulse');
-        document.getElementById('stream-status-dot').classList.add('bg-gray-400');
-        document.getElementById('stream-status').textContent = 'Inactive';
-        document.getElementById('camera-status-badge').textContent = 'Not Connected';
-        document.getElementById('camera-status-badge').classList.remove('text-green-600');
-        document.getElementById('camera-status-badge').classList.add('text-gray-600');
+    function refreshYoloStatus() {
+        showToast('Refreshing YOLO service status...', 'info');
+        checkYoloStatus();
     }
 
-    // ============================================================================
-    // DETECTION CONTROL
-    // ============================================================================
-
     /**
-     * Start pest detection process
+     * Start YOLO service
      */
-    async function startDetection() {
-        // Check if user is student
-        const userRole = '<?php echo $currentUser['role']; ?>';
-        if (userRole === 'student') {
-            showToast('Students do not have permission to start detection', 'error');
-            return;
-        }
+    async function startYoloService() {
+        const startBtn = document.getElementById('start-service-btn');
+        const originalHtml = startBtn.innerHTML;
         
-        if (isDetecting) return;
-
-        if (!selectedDeviceId) {
-            showToast('Please select a camera first', 'error');
-            return;
-        }
-
-        isDetecting = true;
-        scanCount = 0;
-        detectionCount = 0;
-        startTime = Date.now();
-
-        // Update UI - Show detection is active
-        document.getElementById('start-detection-btn').classList.add('hidden');
-        document.getElementById('stop-detection-btn').classList.remove('hidden');
-        document.getElementById('detection-status').textContent = 'ACTIVE';
-        document.getElementById('detection-status').classList.remove('bg-gray-200', 'dark:bg-gray-600', 'text-gray-700', 'dark:text-gray-300');
-        document.getElementById('detection-status').classList.add('bg-green-100', 'dark:bg-green-900', 'text-green-800', 'dark:text-green-200', 'animate-pulse');
-
-        aiOverlay.classList.remove('hidden');
-        statsOverlay.classList.remove('hidden');
-        document.getElementById('ai-status').textContent = 'Processing';
-
-        // Start detection loop - capture and detect every 5 seconds (optimal for accuracy)
-        detectionInterval = setInterval(captureAndDetect, 5000);
-
-        // Start uptime counter
-        uptimeInterval = setInterval(updateUptime, 1000);
-
-        // Capture first frame immediately (no delay)
-        captureAndDetect();
-
-        // Load statistics
-        loadDetectionStats();
-
-        showToast('AI Detection started', 'success');
-        console.log('Detection started');
-    }
-
-    /**
-     * Stop pest detection process
-     */
-    function stopDetection() {
-        if (!isDetecting) return;
-
-        isDetecting = false;
-
-        // Clear intervals
-        if (detectionInterval) {
-            clearInterval(detectionInterval);
-            detectionInterval = null;
-        }
-        if (uptimeInterval) {
-            clearInterval(uptimeInterval);
-            uptimeInterval = null;
-        }
-
-        // Update UI - Show detection is inactive (but camera stays on)
-        document.getElementById('stop-detection-btn').classList.add('hidden');
-        document.getElementById('start-detection-btn').classList.remove('hidden');
-        document.getElementById('detection-status').textContent = 'INACTIVE';
-        document.getElementById('detection-status').classList.remove('bg-green-100', 'dark:bg-green-900', 'text-green-800', 'dark:text-green-200', 'animate-pulse');
-        document.getElementById('detection-status').classList.add('bg-gray-200', 'dark:bg-gray-600', 'text-gray-700', 'dark:text-gray-300');
-
-        aiOverlay.classList.add('hidden');
-        statsOverlay.classList.add('hidden');
-        document.getElementById('ai-status').textContent = 'Standby';
-
-        // Camera stays on - don't stop it
-        // stopCamera(); // Removed - camera continues running
-
-        showToast('AI Detection stopped (camera still active)', 'info');
-        console.log('Detection stopped, camera still running');
-    }
-
-    /**
-     * Capture frame from video and send for detection
-     */
-    async function captureAndDetect() {
-        if (!isDetecting) return;
-
+        // Disable button and show loading
+        startBtn.disabled = true;
+        startBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Starting...';
+        
         try {
-            // Capture frame from video element
-            const blob = await captureFrame();
-
-            if (!blob) {
-                console.error('Failed to capture frame');
-                return;
-            }
-
-            // Update scan count
-            scanCount++;
-            document.getElementById('scan-count').textContent = scanCount;
-
-            // Send frame for detection
-            await sendFrameForDetection(blob);
-
-            // Update last scan time
-            document.getElementById('last-scan').textContent = 'Just now';
-
-        } catch (error) {
-            console.error('Error in capture and detect:', error);
-        }
-    }
-
-    /**
-     * Capture current video frame as a blob
-     */
-    function captureFrame() {
-        return new Promise((resolve) => {
-            try {
-                // Set canvas dimensions to match video
-                captureCanvas.width = videoElement.videoWidth;
-                captureCanvas.height = videoElement.videoHeight;
-
-                // Draw current video frame to canvas
-                const ctx = captureCanvas.getContext('2d');
-                ctx.drawImage(videoElement, 0, 0, captureCanvas.width, captureCanvas.height);
-
-                // Convert canvas to blob
-                captureCanvas.toBlob((blob) => {
-                    resolve(blob);
-                }, 'image/jpeg', 0.85);
-
-            } catch (error) {
-                console.error('Error capturing frame:', error);
-                resolve(null);
-            }
-        });
-    }
-
-    /**
-     * Send captured frame to server for detection
-     */
-    async function sendFrameForDetection(blob) {
-        if (!isDetecting) {
-            console.log('Detection stopped, skipping frame');
-            return;
-        }
-
-        try {
-            // Create form data with image
             const formData = new FormData();
-            formData.append('action', 'detect_webcam');
-            formData.append('image', blob, 'frame.jpg');
-
-            // Send to server (Flask-optimized version)
-            const response = await fetch('pest_detection.php', {
+            formData.append('action', 'start');
+            
+            const response = await fetch('yolo_service_control.php', {
                 method: 'POST',
                 body: formData
             });
-
+            
             const data = await response.json();
-
-            if (!isDetecting) {
-                console.log('Detection stopped, ignoring results');
-                return;
-            }
-
+            
             if (data.success) {
-                console.log('High confidence detections (logged):', data.detections);
-                console.log('All detections (including low confidence):', data.all_detections);
-
-                // Update latest detection image with ALL detections (including low confidence)
-                if (data.annotated_image && data.all_detections) {
-                    updateLatestDetection(data.annotated_image, data.all_detections);
-                }
-
-                // Update detection count and UI with HIGH CONFIDENCE detections only
-                if (data.detections && data.detections.length > 0) {
-                    const newDetections = data.detections.filter(d => d.logged);
-
-                    if (newDetections.length > 0) {
-                        detectionCount += newDetections.length;
-                        document.getElementById('detection-count').textContent = detectionCount;
-
-                        // Immediately refresh displays (no delay)
-                        loadRecentDetections();
-                        loadDetectionStats();
-
-                        // Show toast notification for new HIGH CONFIDENCE detections
-                        newDetections.forEach(detection => {
-                            console.log(`🐛 Logged: ${detection.type} (${detection.confidence}%)`);
-                        });
-                    }
-                }
-
-                // Show info about low confidence detections
-                if (data.all_detections) {
-                    const lowConfDetections = data.all_detections.filter(d => d.is_low_confidence);
-                    if (lowConfDetections.length > 0) {
-                        console.log(`ℹ️ ${lowConfDetections.length} low confidence detection(s) shown in image but not logged`);
-                    }
-                }
+                showToast(data.message || 'YOLO service started successfully', 'success');
+                // Wait a moment then refresh status
+                setTimeout(() => {
+                    checkYoloStatus();
+                }, 2000);
             } else {
-                console.error('Detection failed:', data.message);
+                showToast(data.message || 'Failed to start YOLO service', 'error');
+                startBtn.disabled = false;
+                startBtn.innerHTML = originalHtml;
             }
-
         } catch (error) {
-            console.error('Error sending frame for detection:', error);
+            console.error('Error starting service:', error);
+            showToast('Error starting YOLO service', 'error');
+            startBtn.disabled = false;
+            startBtn.innerHTML = originalHtml;
         }
     }
 
     /**
-     * Update uptime display
+     * Stop YOLO service
      */
-    function updateUptime() {
-        if (!startTime) return;
+    async function stopYoloService() {
+        if (!confirm('Are you sure you want to stop the YOLO detection service? This will stop all active monitoring.')) {
+            return;
+        }
+        
+        const stopBtn = document.getElementById('stop-service-btn');
+        const originalHtml = stopBtn.innerHTML;
+        
+        // Disable button and show loading
+        stopBtn.disabled = true;
+        stopBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i>Stopping...';
+        
+        try {
+            const formData = new FormData();
+            formData.append('action', 'stop');
+            
+            const response = await fetch('yolo_service_control.php', {
+                method: 'POST',
+                body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                showToast(data.message || 'YOLO service stopped successfully', 'success');
+                // Wait a moment then refresh status
+                setTimeout(() => {
+                    checkYoloStatus();
+                }, 1000);
+            } else {
+                showToast(data.message || 'Failed to stop YOLO service', 'error');
+                stopBtn.disabled = false;
+                stopBtn.innerHTML = originalHtml;
+            }
+        } catch (error) {
+            console.error('Error stopping service:', error);
+            showToast('Error stopping YOLO service', 'error');
+            stopBtn.disabled = false;
+            stopBtn.innerHTML = originalHtml;
+        }
+    }
 
-        const elapsed = Math.floor((Date.now() - startTime) / 1000);
-        const minutes = Math.floor(elapsed / 60);
-        const seconds = elapsed % 60;
+    // ============================================================================
+    // CAMERA CONFIGURATION
+    // ============================================================================
 
-        document.getElementById('uptime').textContent =
-            `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    /**
+     * Load available cameras into select dropdown
+     */
+    async function loadCameraList() {
+        try {
+            // Request camera permission first
+            const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+            tempStream.getTracks().forEach(track => track.stop());
+            
+            // Enumerate cameras
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const videoDevices = devices.filter(device => device.kind === 'videoinput');
+            
+            const cameraSelect = document.getElementById('camera-select');
+            const cameraConfigBadge = document.getElementById('camera-config-badge');
+            
+            if (videoDevices.length === 0) {
+                cameraSelect.innerHTML = '<option value="">No cameras found</option>';
+                cameraConfigBadge.textContent = 'No Cameras';
+                cameraConfigBadge.className = 'text-xs font-bold text-red-600 dark:text-red-400';
+                return;
+            }
+            
+            // Get saved camera
+            const savedCameraId = localStorage.getItem('defaultCameraId');
+            
+            // Populate dropdown
+            cameraSelect.innerHTML = '';
+            videoDevices.forEach((device, index) => {
+                const option = document.createElement('option');
+                option.value = device.deviceId;
+                option.textContent = device.label || `Camera ${index + 1}`;
+                
+                if (device.deviceId === savedCameraId) {
+                    option.selected = true;
+                    selectedDeviceId = device.deviceId;
+                }
+                
+                cameraSelect.appendChild(option);
+            });
+            
+            // Update badge
+            if (savedCameraId) {
+                cameraConfigBadge.textContent = 'Configured';
+                cameraConfigBadge.className = 'text-xs font-bold text-green-600 dark:text-green-400';
+            } else {
+                cameraConfigBadge.textContent = 'Not Set';
+                cameraConfigBadge.className = 'text-xs font-bold text-yellow-600 dark:text-yellow-400';
+            }
+            
+        } catch (error) {
+            console.error('Error loading cameras:', error);
+            const cameraSelect = document.getElementById('camera-select');
+            cameraSelect.innerHTML = '<option value="">Camera access denied</option>';
+            
+            const cameraConfigBadge = document.getElementById('camera-config-badge');
+            cameraConfigBadge.textContent = 'Access Denied';
+            cameraConfigBadge.className = 'text-xs font-bold text-red-600 dark:text-red-400';
+        }
+    }
+
+    /**
+     * Save camera configuration
+     */
+    function saveCameraConfig() {
+        const cameraSelect = document.getElementById('camera-select');
+        const selectedCamera = cameraSelect.value;
+        
+        if (!selectedCamera) {
+            showToast('Please select a camera', 'error');
+            return;
+        }
+        
+        const cameraName = cameraSelect.options[cameraSelect.selectedIndex].textContent;
+        
+        localStorage.setItem('defaultCameraId', selectedCamera);
+        localStorage.setItem('defaultCameraName', cameraName);
+        
+        selectedDeviceId = selectedCamera;
+        
+        const cameraConfigBadge = document.getElementById('camera-config-badge');
+        cameraConfigBadge.textContent = 'Configured';
+        cameraConfigBadge.className = 'text-xs font-bold text-green-600 dark:text-green-400';
+        
+        showToast(`Camera configured: ${cameraName}`, 'success');
     }
 
     // ============================================================================
@@ -1521,6 +1448,13 @@ include 'includes/header.php';
                                     </div>
                                     
                                     <div class="space-y-4">
+                                        ${alert.image_path ? `
+                                            <div class="bg-gray-100 dark:bg-gray-900 rounded-lg overflow-hidden">
+                                                <img src="${escapeHtml(alert.image_path)}" alt="Detection Image" class="w-full h-auto object-contain max-h-96" 
+                                                     onerror="this.parentElement.innerHTML='<div class=\\'text-center py-8 text-gray-500 dark:text-gray-400\\'><i class=\\'fas fa-image-slash text-4xl mb-2\\'></i><p class=\\'text-sm\\'>Image not available</p></div>'">
+                                            </div>
+                                        ` : ''}
+                                        
                                         <div class="flex items-center gap-4">
                                             <span class="px-3 py-1 text-sm font-bold uppercase rounded ${alert.severity === 'critical' ? 'bg-red-600 text-white' : alert.severity === 'high' ? 'bg-orange-600 text-white' : alert.severity === 'medium' ? 'bg-yellow-600 text-white' : 'bg-blue-600 text-white'}">${alert.severity}</span>
                                             <span class="text-gray-600 dark:text-gray-400">${alert.confidence_score}% confidence</span>
@@ -1738,6 +1672,32 @@ include 'includes/header.php';
     }
 
     // ============================================================================
+    // POPUP WINDOW
+    // ============================================================================
+
+    /**
+     * Open pest monitor in popup window
+     */
+    function openPestMonitorPopup() {
+        const width = 1400;
+        const height = 900;
+        const left = (screen.width - width) / 2;
+        const top = (screen.height - height) / 2;
+        
+        const popup = window.open(
+            'pest_monitor_popup.php',
+            'PestMonitor',
+            `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,toolbar=no,menubar=no,location=no`
+        );
+        
+        if (!popup || popup.closed || typeof popup.closed == 'undefined') {
+            showToast('Popup was blocked! Please allow popups for this site.', 'error');
+        } else {
+            showToast('Pest monitor opened in new window', 'success');
+        }
+    }
+
+    // ============================================================================
     // EVENT LISTENERS
     // ============================================================================
 
@@ -1748,230 +1708,42 @@ include 'includes/header.php';
     // ============================================================================
 
     document.addEventListener('DOMContentLoaded', async function() {
-        console.log('Real-Time Pest Detection System initializing...');
+        console.log('Pest Detection Control Center initializing...');
         
-        // Check user role
-        const userRole = '<?php echo $currentUser['role']; ?>';
-        const isStudent = userRole === 'student';
-
-        // Check for getUserMedia support
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            showToast('Your browser does not support camera access. Please use a modern browser.', 'error');
-            document.getElementById('camera-status').textContent = 'NOT SUPPORTED';
-            document.getElementById('camera-status').classList.remove('bg-gray-400');
-            document.getElementById('camera-status').classList.add('bg-red-600');
-            return;
-        }
-
-        // Request camera permission first
-        try {
-            const tempStream = await navigator.mediaDevices.getUserMedia({
-                video: true
-            });
-            tempStream.getTracks().forEach(track => track.stop());
-        } catch (error) {
-            console.error('Camera permission denied:', error);
-            showToast('Camera permission denied. Please allow camera access.', 'error');
-            document.getElementById('live-indicator').textContent = 'PERMISSION DENIED';
-            document.getElementById('live-indicator').classList.remove('bg-gray-400');
-            document.getElementById('live-indicator').classList.add('bg-red-600');
-            return;
-        }
-
-        // Enumerate cameras
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-        if (videoDevices.length === 0) {
-            showToast('No cameras found', 'error');
-            document.getElementById('live-indicator').textContent = 'NO CAMERA';
-            document.getElementById('live-indicator').classList.remove('bg-gray-400');
-            document.getElementById('live-indicator').classList.add('bg-red-600');
-            return;
-        }
-
-        // Get saved camera or use first available
-        const savedCameraId = localStorage.getItem('defaultCameraId');
-        const savedCameraName = localStorage.getItem('defaultCameraName');
-
-        // Find the camera to use
-        let cameraToUse = videoDevices[0];
-        if (savedCameraId) {
-            const savedCamera = videoDevices.find(d => d.deviceId === savedCameraId);
-            if (savedCamera) {
-                cameraToUse = savedCamera;
-            }
-        }
-
-        selectedDeviceId = cameraToUse.deviceId;
-        const cameraName = savedCameraName || cameraToUse.label || 'Default Camera';
-        document.getElementById('camera-name').textContent = cameraName;
-
-        // Save as default if not already saved
-        if (!savedCameraId) {
-            localStorage.setItem('defaultCameraId', selectedDeviceId);
-            localStorage.setItem('defaultCameraName', cameraName);
-        }
-
+        // Load camera list for configuration
+        await loadCameraList();
+        
+        // Check YOLO service status
+        await checkYoloStatus();
+        
         // Load initial data
         await loadRecentDetections();
         await loadDetectionStats();
         await updateUnreadCount();
 
-        console.log('Real-Time Pest Detection System ready');
-        console.log('Using camera:', cameraName);
+        console.log('Pest Detection Control Center ready');
 
-        // Start camera feed (but not detection)
-        await startCamera(selectedDeviceId);
-
-        // Update camera status based on role
-        if (isStudent) {
-            document.getElementById('camera-status').textContent = 'VIEW ONLY';
-            document.getElementById('camera-status').classList.remove('bg-gray-400');
-            document.getElementById('camera-status').classList.add('bg-blue-600');
-            console.log('Student mode: Camera feed active, detection controls disabled');
-        } else {
-            document.getElementById('camera-status').textContent = 'LIVE';
-            document.getElementById('camera-status').classList.remove('bg-gray-400');
-            document.getElementById('camera-status').classList.add('bg-green-600');
-            console.log('Camera feed started. Click "Start Detection" to begin AI pest detection.');
-        }
-
+        // Auto-refresh recent detections every 10 seconds
+        setInterval(async () => {
+            await loadRecentDetections();
+            await loadDetectionStats();
+        }, 10000);
+        
         // Update unread count every 30 seconds
         setInterval(updateUnreadCount, 30000);
+        
+        // Check YOLO status every 60 seconds
+        yoloStatusCheckInterval = setInterval(checkYoloStatus, 60000);
     });
 
     // Cleanup on page unload
     window.addEventListener('beforeunload', function() {
-        if (isDetecting) {
-            stopDetection();
+        if (yoloStatusCheckInterval) {
+            clearInterval(yoloStatusCheckInterval);
         }
     });
 </script>
 
-<!-- Camera Settings Modal -->
-<div id="camera-settings-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full">
-        <div class="p-6">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-xl font-bold text-gray-900 dark:text-white">
-                    <i class="fas fa-cog text-blue-600 mr-2"></i>
-                    Camera Settings
-                </h3>
-                <button onclick="closeCameraSettings()" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-                    <i class="fas fa-times text-xl"></i>
-                </button>
-            </div>
 
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Select Default Camera
-                    </label>
-                    <select id="camera-select-modal" class="w-full px-4 py-2 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg focus:ring-2 focus:ring-blue-500">
-                        <option value="">Loading cameras...</option>
-                    </select>
-                </div>
-
-                <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-                    <p class="text-sm text-blue-800 dark:text-blue-200">
-                        <i class="fas fa-info-circle mr-2"></i>
-                        Your camera selection will be saved and automatically used when you visit this page.
-                    </p>
-                </div>
-
-                <div class="flex gap-3 pt-4">
-                    <button onclick="saveCameraSettings()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
-                        <i class="fas fa-save mr-2"></i>Save & Restart
-                    </button>
-                    <button onclick="closeCameraSettings()" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-white font-medium rounded-lg transition-colors">
-                        Cancel
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-    // Camera Settings Functions
-    function openCameraSettings() {
-        document.getElementById('camera-settings-modal').classList.remove('hidden');
-
-        // Populate modal with cameras
-        const modalSelect = document.getElementById('camera-select-modal');
-        modalSelect.innerHTML = '';
-
-        navigator.mediaDevices.enumerateDevices().then(devices => {
-            const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
-            videoDevices.forEach((device, index) => {
-                const option = document.createElement('option');
-                option.value = device.deviceId;
-                option.textContent = device.label || `Camera ${index + 1}`;
-
-                // Select current camera
-                if (device.deviceId === selectedDeviceId) {
-                    option.selected = true;
-                }
-
-                modalSelect.appendChild(option);
-            });
-        });
-    }
-
-    function closeCameraSettings() {
-        document.getElementById('camera-settings-modal').classList.add('hidden');
-    }
-
-    function saveCameraSettings() {
-        const modalSelect = document.getElementById('camera-select-modal');
-        const newDeviceId = modalSelect.value;
-
-        if (newDeviceId) {
-            // Save to localStorage
-            localStorage.setItem('defaultCameraId', newDeviceId);
-
-            // Get camera name
-            const selectedOption = modalSelect.options[modalSelect.selectedIndex];
-            const cameraName = selectedOption.textContent;
-            localStorage.setItem('defaultCameraName', cameraName);
-
-            showToast('Camera settings saved! Restarting camera...', 'success');
-
-            // Close modal
-            closeCameraSettings();
-
-            // Stop detection if running
-            const wasDetecting = isDetecting;
-            if (isDetecting) {
-                stopDetection();
-            }
-
-            // Update camera
-            selectedDeviceId = newDeviceId;
-            document.getElementById('camera-name').textContent = cameraName;
-
-            // Restart camera with new device
-            setTimeout(async () => {
-                await startCamera(newDeviceId);
-
-                // If detection was running, restart it
-                if (wasDetecting) {
-                    setTimeout(() => {
-                        startDetection();
-                    }, 500);
-                }
-            }, 500);
-        }
-    }
-
-    // Close modal when clicking outside
-    document.getElementById('camera-settings-modal').addEventListener('click', function(e) {
-        if (e.target === this) {
-            closeCameraSettings();
-        }
-    });
-</script>
 
 <?php include 'includes/footer.php'; ?>

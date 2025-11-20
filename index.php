@@ -680,10 +680,8 @@ include 'includes/header.php';
                 <div>
                     <h4 class="text-sm font-semibold mb-3">Support</h4>
                     <ul class="space-y-2">
-                        <li><a href="#" class="text-xs text-gray-300 hover:text-white transition-colors">Documentation</a></li>
-                        <li><a href="#" class="text-xs text-gray-300 hover:text-white transition-colors">Help Center</a></li>
-                        <li><a href="#" class="text-xs text-gray-300 hover:text-white transition-colors">Privacy Policy</a></li>
-                        <li><a href="#" class="text-xs text-gray-300 hover:text-white transition-colors">Terms of Service</a></li>
+                        <li><a href="privacy_policy.php" class="text-xs text-gray-300 hover:text-white transition-colors">Privacy Policy</a></li>
+                        <li><a href="terms_of_service.php" class="text-xs text-gray-300 hover:text-white transition-colors">Terms of Service</a></li>
                     </ul>
                 </div>
             </div>
