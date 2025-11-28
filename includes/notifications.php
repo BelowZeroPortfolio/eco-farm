@@ -106,6 +106,107 @@ function getPestAlertNotifications($limit = null)
 }
 
 /**
+ * Get plant threshold alert notifications from database
+ */
+function getPlantAlertNotifications($limit = null)
+{
+    try {
+        $configPath = __DIR__ . '/../config/database.php';
+        
+        if (!file_exists($configPath)) {
+            error_log("Database config not found at: " . $configPath);
+            return [];
+        }
+        
+        require_once $configPath;
+        
+        if (!function_exists('getDatabaseConnection')) {
+            error_log("getDatabaseConnection function not found");
+            return [];
+        }
+        
+        $pdo = getDatabaseConnection();
+        
+        if (!$pdo) {
+            error_log("Database connection is null");
+            return [];
+        }
+
+        $query = "
+            SELECT 
+                n.NotificationID,
+                n.PlantID,
+                n.Message,
+                n.SensorType,
+                n.Level,
+                n.SuggestedAction,
+                n.CurrentValue,
+                n.RequiredRange,
+                n.Status,
+                n.IsRead,
+                n.ReadAt,
+                n.CreatedAt,
+                p.PlantName,
+                p.LocalName
+            FROM Notifications n
+            INNER JOIN Plants p ON n.PlantID = p.PlantID
+            ORDER BY n.CreatedAt DESC
+        ";
+
+        if ($limit) {
+            $query .= " LIMIT " . intval($limit);
+        }
+
+        $stmt = $pdo->query($query);
+        
+        if (!$stmt) {
+            error_log("Failed to execute plant notifications query");
+            return [];
+        }
+        
+        $plantAlerts = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        error_log("Found " . count($plantAlerts) . " plant alerts in database");
+
+        // Convert plant alerts to notification format
+        $notifications = [];
+        foreach ($plantAlerts as $alert) {
+            // Determine severity based on sensor type and status
+            $severity = 'high'; // Default to high for plant alerts
+            if ($alert['Level'] >= 5) {
+                $severity = 'critical';
+            } elseif ($alert['Level'] >= 3) {
+                $severity = 'high';
+            } else {
+                $severity = 'medium';
+            }
+            
+            $sensorName = ucwords(str_replace('_', ' ', $alert['SensorType']));
+            
+            $notifications[] = [
+                'id' => 'plant_' . $alert['NotificationID'],
+                'type' => $severity,
+                'title' => "🌱 {$alert['PlantName']} Alert",
+                'message' => "{$sensorName}: {$alert['Status']} - Current: {$alert['CurrentValue']}, Required: {$alert['RequiredRange']}",
+                'timestamp' => $alert['CreatedAt'],
+                'read' => (bool)$alert['IsRead'],
+                'action_url' => 'notifications.php?notification_id=' . $alert['NotificationID'],
+                'action_text' => 'View Action',
+                'suggested_action' => $alert['SuggestedAction']
+            ];
+        }
+
+        return $notifications;
+    } catch (PDOException $e) {
+        error_log("Database error fetching plant alerts: " . $e->getMessage());
+        return [];
+    } catch (Exception $e) {
+        error_log("Error fetching plant alerts: " . $e->getMessage());
+        return [];
+    }
+}
+
+/**
  * Get sample notifications for demonstration
  */
 function getSampleNotifications()
@@ -145,14 +246,15 @@ function getSampleNotifications()
 }
 
 /**
- * Get notifications with priority sorting (includes pest alerts)
+ * Get notifications with priority sorting (includes pest alerts and plant alerts)
  */
 function getNotifications($limit = null, $unreadOnly = false)
 {
-    // Merge pest alerts with sample notifications
+    // Merge pest alerts, plant alerts, and sample notifications
     $pestAlerts = getPestAlertNotifications(20); // Get recent pest alerts
+    $plantAlerts = getPlantAlertNotifications(20); // Get recent plant alerts
     $sampleNotifications = getSampleNotifications();
-    $notifications = array_merge($pestAlerts, $sampleNotifications);
+    $notifications = array_merge($pestAlerts, $plantAlerts, $sampleNotifications);
 
     // Filter unread only if requested
     if ($unreadOnly) {

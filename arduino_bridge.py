@@ -232,8 +232,8 @@ if __name__ == "__main__":
     # Start background thread for reading data
     threading.Thread(target=read_from_arduino, daemon=True).start()
     
-    print(f"🚀 Service starting on http://127.0.0.1:5000")
+    print(f"🚀 Service starting on http://127.0.0.1:5001")
     print(f"📡 Arduino Status: {'Connected' if arduino_connected else 'Simulation Mode'}")
     print("=" * 60)
     
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5001, debug=False)

@@ -826,7 +826,7 @@ include 'includes/navigation.php';
                         <p class="text-sm font-medium text-gray-900 dark:text-white">Reports</p>
                         <p class="text-xs text-gray-600 dark:text-gray-400">Generate data</p>
                     </a>
-                    <a href="camera_management.php" class="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-center hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors group">
+                    <a href="pest_detection.php" class="p-4 bg-purple-50 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 rounded-lg text-center hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors group">
                         <div class="w-12 h-12 bg-purple-100 dark:bg-purple-900 rounded-lg flex items-center justify-center mx-auto mb-2 group-hover:scale-110 transition-transform">
                             <i class="fas fa-camera text-purple-600 dark:text-purple-400 text-lg"></i>
                         </div>

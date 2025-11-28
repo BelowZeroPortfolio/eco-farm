@@ -1,8 +1,7 @@
 <?php
-
 /**
- * Arduino Service Control
- * Handles starting and stopping the Python Arduino bridge service
+ * Arduino Bridge Service Control
+ * Handles starting and stopping the Arduino bridge service
  */
 
 header('Content-Type: application/json');
@@ -18,7 +17,7 @@ $action = $_POST['action'] ?? '';
 
 function isServiceRunning()
 {
-    // Check if the Python service is running on port 5000
+    // Check if the Arduino bridge service is running on port 5000
     $connection = @fsockopen('127.0.0.1', 5000, $errno, $errstr, 1);
     if ($connection) {
         fclose($connection);
@@ -29,14 +28,13 @@ function isServiceRunning()
 
 function startService()
 {
-    if (isServiceRunning()) {
-        return ['success' => true, 'message' => 'Service is already running'];
-    }
-
-    // Start the Python service in background
+    // Start the Arduino bridge service in background
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-        // Windows
-        $command = 'start /B python arduino_bridge.py > nul 2>&1';
+        // Windows - Run .py file directly in hidden/minimized window
+        // Get the current directory where the PHP script is located
+        $currentDir = __DIR__;
+        // /MIN = minimized window
+        $command = 'start "Arduino Bridge Service" /MIN /D "' . $currentDir . '" arduino_bridge.py';
         pclose(popen($command, 'r'));
     } else {
         // Linux/Mac
@@ -44,40 +42,24 @@ function startService()
         exec($command);
     }
 
-    // Wait a moment and check if it started
-    sleep(2);
-
-    if (isServiceRunning()) {
-        return ['success' => true, 'message' => 'Arduino bridge service started successfully'];
-    } else {
-        return ['success' => false, 'message' => 'Failed to start service. Check if Python and required packages are installed.'];
-    }
+    // Return success immediately without waiting
+    return ['success' => true, 'message' => 'Arduino bridge started'];
 }
 
 function stopService()
 {
-    if (!isServiceRunning()) {
-        return ['success' => true, 'message' => 'Service is already stopped'];
-    }
-
-    // Try to stop the service gracefully
+    // Stop the service
     if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         // Windows - kill Python processes running arduino_bridge.py
-        exec('taskkill /F /IM python.exe /FI "WINDOWTITLE eq arduino_bridge*" 2>nul');
+        exec('taskkill /F /FI "WINDOWTITLE eq Arduino Bridge*" 2>nul');
         exec('wmic process where "name=\'python.exe\' and commandline like \'%arduino_bridge.py%\'" delete 2>nul');
     } else {
         // Linux/Mac
         exec('pkill -f arduino_bridge.py');
     }
 
-    // Wait a moment and check if it stopped
-    sleep(1);
-
-    if (!isServiceRunning()) {
-        return ['success' => true, 'message' => 'Arduino bridge service stopped successfully'];
-    } else {
-        return ['success' => false, 'message' => 'Service may still be running. Try again or restart manually.'];
-    }
+    // Return success immediately without waiting
+    return ['success' => true, 'message' => 'Arduino bridge stopped'];
 }
 
 function getServiceStatus()
@@ -105,36 +87,26 @@ function getServiceStatus()
 
     return [
         'success' => true,
-        'status' => $status,
         'running' => $isRunning,
-        'info' => $info
+        'status' => $status,
+        'info' => $info,
+        'message' => $isRunning ? 'Arduino bridge is running' : 'Arduino bridge is stopped'
     ];
 }
 
-// Handle the requested action
+// Handle actions
 switch ($action) {
     case 'start':
-        echo json_encode(startService());
+        $result = startService();
         break;
-
     case 'stop':
-        echo json_encode(stopService());
+        $result = stopService();
         break;
-
     case 'status':
-        echo json_encode(getServiceStatus());
+        $result = getServiceStatus();
         break;
-
-    case 'restart':
-        $stopResult = stopService();
-        if ($stopResult['success']) {
-            sleep(1);
-            echo json_encode(startService());
-        } else {
-            echo json_encode($stopResult);
-        }
-        break;
-
     default:
-        echo json_encode(['success' => false, 'message' => 'Invalid action']);
+        $result = ['success' => false, 'message' => 'Invalid action'];
 }
+
+echo json_encode($result);

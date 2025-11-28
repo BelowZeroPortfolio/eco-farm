@@ -27,6 +27,30 @@ $filterType = $_GET['sensor_type'] ?? 'all';
 $filterPeriod = $_GET['period'] ?? '24h';
 $chartType = $_GET['chart'] ?? 'line';
 
+// Get sensor logging interval from settings (in minutes, convert to seconds)
+function getSensorLoggingInterval() {
+    try {
+        $pdo = getDatabaseConnection();
+        $stmt = $pdo->prepare("
+            SELECT setting_value 
+            FROM user_settings 
+            WHERE setting_key = 'sensor_logging_interval' 
+            LIMIT 1
+        ");
+        $stmt->execute();
+        $result = $stmt->fetch();
+        $minutes = $result ? floatval($result['setting_value']) : 30;
+        // Convert minutes to seconds
+        return intval($minutes * 60);
+    } catch (Exception $e) {
+        error_log("Failed to get sensor interval: " . $e->getMessage());
+        return 1800; // Default 30 minutes = 1800 seconds
+    }
+}
+
+$sensorInterval = getSensorLoggingInterval();
+$sensorIntervalDisplay = $sensorInterval >= 60 ? round($sensorInterval / 60) . 'm' : $sensorInterval . 's';
+
 // Calculate date range based on period
 function getDateRange($period) {
     $now = new DateTime();
@@ -197,13 +221,56 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
 
     <!-- Compact Statistics -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
-        <?php foreach ($sensorStats as $stat): 
+        <?php 
+        // Get active plant thresholds for comparison
+        $activePlantThresholds = null;
+        try {
+            $pdo = getDatabaseConnection();
+            $stmt = $pdo->query("
+                SELECT p.* 
+                FROM Plants p
+                INNER JOIN ActivePlant ap ON p.PlantID = ap.SelectedPlantID
+                LIMIT 1
+            ");
+            $activePlantThresholds = $stmt->fetch();
+        } catch (Exception $e) {
+            $activePlantThresholds = null;
+        }
+        
+        foreach ($sensorStats as $stat): 
             $icons = [
                 'temperature' => ['icon' => 'fa-thermometer-half', 'color' => 'red', 'emoji' => '🌡️'],
                 'humidity' => ['icon' => 'fa-tint', 'color' => 'blue', 'emoji' => '💧'],
                 'soil_moisture' => ['icon' => 'fa-seedling', 'color' => 'green', 'emoji' => '🌱']
             ];
             $config = $icons[$stat['sensor_type']] ?? ['icon' => 'fa-sensor', 'color' => 'gray', 'emoji' => '📊'];
+            
+            // Get plant thresholds for this sensor type
+            $plantMin = null;
+            $plantMax = null;
+            $isWithinRange = true;
+            
+            if ($activePlantThresholds) {
+                switch ($stat['sensor_type']) {
+                    case 'temperature':
+                        $plantMin = $activePlantThresholds['MinTemperature'];
+                        $plantMax = $activePlantThresholds['MaxTemperature'];
+                        break;
+                    case 'humidity':
+                        $plantMin = $activePlantThresholds['MinHumidity'];
+                        $plantMax = $activePlantThresholds['MaxHumidity'];
+                        break;
+                    case 'soil_moisture':
+                        $plantMin = $activePlantThresholds['MinSoilMoisture'];
+                        $plantMax = $activePlantThresholds['MaxSoilMoisture'];
+                        break;
+                }
+                
+                // Check if average is within plant range
+                if ($plantMin !== null && $plantMax !== null) {
+                    $isWithinRange = ($stat['avg_value'] >= $plantMin && $stat['avg_value'] <= $plantMax);
+                }
+            }
         ?>
             <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3">
                 <div class="flex items-center justify-between mb-2">
@@ -215,20 +282,144 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
                 <h3 class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                     <?php echo ucfirst(str_replace('_', ' ', $stat['sensor_type'])); ?>
                 </h3>
-                <div class="flex items-center justify-between text-xs">
-                    <div>
-                        <span class="text-gray-500 dark:text-gray-400">Avg:</span>
-                        <span class="font-bold text-gray-900 dark:text-white ml-1">
-                            <?php echo number_format($stat['avg_value'], 1); ?><?php echo $stat['unit']; ?>
-                        </span>
-                    </div>
-                    <div class="text-gray-400 dark:text-gray-500">
-                        <?php echo number_format($stat['min_value'], 1); ?> - <?php echo number_format($stat['max_value'], 1); ?>
-                    </div>
+                <div class="text-xs mb-2">
+                    <span class="text-gray-500 dark:text-gray-400">Avg:</span>
+                    <span class="font-bold text-gray-900 dark:text-white ml-1">
+                        <?php echo number_format($stat['avg_value'], 1); ?><?php echo $stat['unit']; ?>
+                    </span>
+                    <?php if ($isWithinRange): ?>
+                        <span class="text-green-500 ml-1">●</span>
+                    <?php else: ?>
+                        <span class="text-red-500 ml-1">●</span>
+                    <?php endif; ?>
                 </div>
+                <div class="text-xs text-gray-400 dark:text-gray-500 mb-1">
+                    <span class="font-medium">Data Range:</span>
+                    <?php echo number_format($stat['min_value'], 1); ?> - <?php echo number_format($stat['max_value'], 1); ?>
+                </div>
+                <?php if ($plantMin !== null && $plantMax !== null): ?>
+                <div class="text-xs <?php echo $isWithinRange ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'; ?> font-medium">
+                    <span class="opacity-75">Plant Range:</span>
+                    <?php echo number_format($plantMin, 1); ?> - <?php echo number_format($plantMax, 1); ?><?php echo $stat['unit']; ?>
+                </div>
+                <?php endif; ?>
             </div>
         <?php endforeach; ?>
     </div>
+    
+    <!-- Active Plant Selector -->
+    <?php
+    try {
+        $pdo = getDatabaseConnection();
+        
+        // Get all plants
+        $plantsStmt = $pdo->query("SELECT PlantID, PlantName, LocalName FROM Plants ORDER BY PlantName");
+        $plants = $plantsStmt->fetchAll();
+        
+        // Get active plant
+        $activeStmt = $pdo->query("SELECT SelectedPlantID FROM ActivePlant LIMIT 1");
+        $activeResult = $activeStmt->fetch();
+        $activePlantID = $activeResult ? $activeResult['SelectedPlantID'] : null;
+    } catch (Exception $e) {
+        $plants = [];
+        $activePlantID = null;
+    }
+    ?>
+    
+    <?php if (!empty($plants)): ?>
+    <div class="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-900/20 dark:to-emerald-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3 mb-3">
+        <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2 flex-1">
+                <i class="fas fa-seedling text-green-600 dark:text-green-400"></i>
+                <span class="text-xs font-medium text-gray-700 dark:text-gray-300">Active Plant:</span>
+                
+                <!-- Searchable Plant Selector -->
+                <div class="relative flex-1 max-w-xs">
+                    <input type="text" 
+                           id="plantSearchInput" 
+                           list="plantsList"
+                           placeholder="Type or select plant..."
+                           value="<?php 
+                               if ($activePlantID) {
+                                   foreach ($plants as $plant) {
+                                       if ($plant['PlantID'] == $activePlantID) {
+                                           echo htmlspecialchars($plant['PlantName']) . ' (' . htmlspecialchars($plant['LocalName']) . ')';
+                                           break;
+                                       }
+                                   }
+                               }
+                           ?>"
+                           class="w-full px-3 py-1.5 text-xs bg-white dark:bg-gray-700 text-gray-900 dark:text-white border border-green-300 dark:border-green-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 font-medium"
+                           onchange="handlePlantSelection()"
+                           onfocus="this.select()">
+                    
+                    <datalist id="plantsList">
+                        <?php foreach ($plants as $plant): ?>
+                            <option value="<?php echo htmlspecialchars($plant['PlantName']); ?> (<?php echo htmlspecialchars($plant['LocalName']); ?>)" 
+                                    data-id="<?php echo $plant['PlantID']; ?>">
+                        <?php endforeach; ?>
+                    </datalist>
+                    
+                    <!-- Hidden input to store plant ID -->
+                    <input type="hidden" id="selectedPlantId" value="<?php echo $activePlantID ?? ''; ?>">
+                </div>
+                
+                <?php if ($activePlantID): ?>
+                    <span class="px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full font-medium">
+                        <i class="fas fa-check-circle mr-1"></i>Active
+                    </span>
+                    
+                    <?php
+                    // Get latest violation count for active plant
+                    try {
+                        $stmt = $pdo->prepare("
+                            SELECT WarningLevel 
+                            FROM SensorReadings 
+                            WHERE PlantID = ? 
+                            ORDER BY ReadingTime DESC 
+                            LIMIT 1
+                        ");
+                        $stmt->execute([$activePlantID]);
+                        $latestReading = $stmt->fetch();
+                        $violationCount = $latestReading ? $latestReading['WarningLevel'] : 0;
+                    } catch (Exception $e) {
+                        $violationCount = 0;
+                    }
+                    ?>
+                    
+                    <span id="violation-counter" class="px-2 py-1 <?php echo $violationCount >= 5 ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300' : ($violationCount > 0 ? 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300' : 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300'); ?> text-xs rounded-full font-medium">
+                        <i class="fas fa-exclamation-triangle mr-1"></i>Violations: <span id="violation-count"><?php echo $violationCount; ?></span> / <?php 
+                        // Get warning trigger for active plant
+                        try {
+                            $stmt = $pdo->prepare("SELECT WarningTrigger FROM Plants WHERE PlantID = ?");
+                            $stmt->execute([$activePlantID]);
+                            $plantData = $stmt->fetch();
+                            echo $plantData ? $plantData['WarningTrigger'] : 5;
+                        } catch (Exception $e) {
+                            echo 5;
+                        }
+                        ?>
+                    </span>
+                    
+                    <span id="scan-interval-badge" class="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs rounded-full font-medium">
+                        <i class="fas fa-clock mr-1"></i>Scan: <span id="scan-interval-display"><?php echo $sensorIntervalDisplay; ?></span>
+                    </span>
+                    
+                    <!-- Reset Violations Button (Admin only) -->
+                    <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
+                    <button onclick="resetViolations()" class="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 text-xs rounded-full font-medium" title="Reset violation counter">
+                        <i class="fas fa-redo mr-1"></i>Reset
+                    </button>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <span class="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded-full">
+                        <i class="fas fa-exclamation-circle mr-1"></i>Inactive
+                    </span>
+                <?php endif; ?>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
     
     <!-- Compact Filters -->
     <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-3">
@@ -637,6 +828,92 @@ function applyFilters() {
     window.location.href = `sensors.php?sensor_type=${sensorType}&period=${period}&chart=${chart}`;
 }
 
+// Handle plant selection from searchable input
+function handlePlantSelection() {
+    const input = document.getElementById('plantSearchInput');
+    const selectedValue = input.value;
+    
+    // Find matching plant ID from the datalist
+    const datalist = document.getElementById('plantsList');
+    const options = datalist.querySelectorAll('option');
+    
+    let plantId = null;
+    for (let option of options) {
+        if (option.value === selectedValue) {
+            plantId = option.getAttribute('data-id');
+            break;
+        }
+    }
+    
+    if (plantId) {
+        document.getElementById('selectedPlantId').value = plantId;
+        changeActivePlant(plantId, selectedValue);
+    } else {
+        // If no match, try to find partial match
+        const searchTerm = selectedValue.toLowerCase();
+        for (let option of options) {
+            if (option.value.toLowerCase().includes(searchTerm)) {
+                plantId = option.getAttribute('data-id');
+                input.value = option.value; // Set to full match
+                document.getElementById('selectedPlantId').value = plantId;
+                changeActivePlant(plantId, option.value);
+                break;
+            }
+        }
+    }
+}
+
+// Change active plant
+async function changeActivePlant(plantId, plantName) {
+    if (!plantId) {
+        plantId = document.getElementById('selectedPlantId').value;
+    }
+    
+    if (!plantId) {
+        alert('Please select a valid plant');
+        return;
+    }
+    
+    if (!plantName) {
+        plantName = document.getElementById('plantSearchInput').value;
+    }
+    
+    try {
+        const formData = new FormData();
+        formData.append('action', 'set_active');
+        formData.append('id', plantId);
+        
+        const response = await fetch('plant_database.php', {
+            method: 'POST',
+            body: formData
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Create success notification
+            const notification = document.createElement('div');
+            notification.className = 'fixed top-4 right-4 bg-green-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2';
+            notification.innerHTML = `
+                <i class="fas fa-check-circle"></i>
+                <span>Active plant set to: ${plantName}</span>
+            `;
+            document.body.appendChild(notification);
+            
+            // Remove notification after 3 seconds
+            setTimeout(() => {
+                notification.remove();
+                // Reload to update status badge
+                window.location.reload();
+            }, 2000);
+        } else {
+            alert('Error: ' + result.message);
+        }
+    } catch (error) {
+        alert('Error changing active plant: ' + error.message);
+    }
+}
+
 // Table search
 document.getElementById('tableSearch')?.addEventListener('input', function(e) {
     const searchTerm = e.target.value.toLowerCase();
@@ -745,9 +1022,79 @@ function updateRealTimeIndicators(sensorData) {
     });
 }
 
-// Start real-time updates
-realTimeUpdateInterval = setInterval(updateRealTimeData, 5000); // Update every 5 seconds
+// Get sensor logging interval from PHP (for violation counting)
+const loggingInterval = <?php echo $sensorInterval; ?> * 1000; // Convert to milliseconds
+
+// Real-time Arduino updates (every 5 seconds for dashboard responsiveness)
+const realtimeInterval = 5000; // 5 seconds for real-time display
+
+// Start real-time updates for dashboard (fast updates)
+realTimeUpdateInterval = setInterval(updateRealTimeData, realtimeInterval);
 updateRealTimeData(); // Initial update
+
+// Automatic background sync - runs the same logic as manual_sync_test.php
+async function automaticBackgroundSync() {
+    try {
+        // This will trigger the same process as manual_sync_test.php
+        // It reads Arduino data and processes it through the plant monitor
+        const response = await fetch('auto_sync_background.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            console.log('✓ Auto-sync:', data.consecutive_violations + '/' + data.warning_trigger, 
+                        'violations', data.notification_triggered ? '🔔 NOTIFICATION!' : '');
+            
+            // Update violation counter in real-time
+            const violationCountElement = document.getElementById('violation-count');
+            if (violationCountElement) {
+                violationCountElement.textContent = data.consecutive_violations;
+            }
+            
+            // Update counter color
+            const violationCounterElement = document.getElementById('violation-counter');
+            if (violationCounterElement) {
+                const warningTrigger = data.warning_trigger;
+                if (data.consecutive_violations >= warningTrigger) {
+                    violationCounterElement.className = 'px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs rounded-full font-medium animate-pulse';
+                } else if (data.consecutive_violations > 0) {
+                    violationCounterElement.className = 'px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs rounded-full font-medium';
+                } else {
+                    violationCounterElement.className = 'px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full font-medium';
+                }
+            }
+            
+            // Show notification popup if triggered
+            if (data.notification_triggered && data.violations) {
+                data.violations.forEach(violation => {
+                    showPlantNotification(
+                        data.plant_name,
+                        violation.sensor,
+                        violation.status,
+                        violation.current,
+                        violation.range
+                    );
+                });
+            }
+        }
+    } catch (error) {
+        console.error('Auto-sync error:', error);
+    }
+}
+
+// Start automatic background sync based on LOGGING interval (for violation counting)
+// This is the interval set in settings.php (5 min, 15 min, 1 hour, etc.)
+// This function handles BOTH database logging AND violation counting
+setInterval(automaticBackgroundSync, loggingInterval);
+// NOTE: No initial sync on page load - waits for first interval to prevent counting on refresh
+
+console.log('🌱 Plant Monitoring System Started');
+console.log('📊 Real-time updates: every ' + (realtimeInterval / 1000) + ' seconds');
+console.log('⚠️ Violation checks: every ' + (loggingInterval / 1000) + ' seconds (' + (loggingInterval / 60000) + ' minutes)');
+console.log('💾 Database logging: every ' + (loggingInterval / 60000) + ' minutes');
 
 // Add real-time status indicator
 document.addEventListener('DOMContentLoaded', function() {
@@ -765,7 +1112,226 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
         filtersDiv.appendChild(realTimeIndicator);
     }
+    
 });
+
+// ============================================================================
+// PLANT THRESHOLD MONITORING
+// ============================================================================
+
+/**
+ * Refresh scan interval display from settings
+ */
+async function refreshScanInterval() {
+    try {
+        const response = await fetch('api/get_sensor_interval.php');
+        const data = await response.json();
+        
+        if (data.success) {
+            const intervalSeconds = data.interval_seconds;
+            const displayText = intervalSeconds >= 60 ? Math.round(intervalSeconds / 60) + 'm' : intervalSeconds + 's';
+            
+            const displayElement = document.getElementById('scan-interval-display');
+            if (displayElement) {
+                displayElement.textContent = displayText;
+            }
+        }
+    } catch (error) {
+        console.error('Error refreshing scan interval:', error);
+    }
+}
+
+/**
+ * Check plant thresholds and show notifications
+ */
+async function checkPlantThresholds() {
+    try {
+        const response = await fetch('check_plant_thresholds.php');
+        const data = await response.json();
+        
+        if (data.success) {
+            // Update violation counter
+            const violationCountElement = document.getElementById('violation-count');
+            const violationCounterElement = document.getElementById('violation-counter');
+            
+            if (violationCountElement && violationCounterElement) {
+                const warningLevel = data.warning_level || 0;
+                
+                // Extract the trigger value from the counter text (e.g., "5 / 5" -> 5)
+                const counterText = violationCounterElement.textContent;
+                const triggerMatch = counterText.match(/\/\s*(\d+)/);
+                const warningTrigger = triggerMatch ? parseInt(triggerMatch[1]) : 5;
+                
+                // Update the count while preserving the trigger display
+                violationCountElement.textContent = warningLevel;
+                
+                // Change color based on warning level
+                if (warningLevel >= warningTrigger) {
+                    violationCounterElement.className = 'px-2 py-1 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs rounded-full font-medium animate-pulse';
+                } else if (warningLevel > 0) {
+                    violationCounterElement.className = 'px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-300 text-xs rounded-full font-medium';
+                } else {
+                    violationCounterElement.className = 'px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full font-medium';
+                }
+                
+                // Log for debugging
+                console.log(`Violation Check: ${warningLevel}/${warningTrigger} violations`, data.violations);
+            }
+            
+            // Show notification if triggered
+            if (data.notification_triggered) {
+                console.log('🔔 NOTIFICATION TRIGGERED!', data);
+                data.violations.forEach(violation => {
+                    showPlantNotification(
+                        data.plant,
+                        violation.sensor,
+                        violation.status,
+                        violation.current,
+                        violation.range
+                    );
+                });
+            }
+        } else {
+            console.log('Threshold check:', data.message);
+        }
+    } catch (error) {
+        console.error('Error checking plant thresholds:', error);
+    }
+}
+
+/**
+ * Show plant threshold notification
+ */
+function showPlantNotification(plantName, sensor, status, currentValue, range) {
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 bg-red-500 text-white px-4 py-3 rounded-lg shadow-lg z-50 max-w-md';
+    notification.innerHTML = `
+        <div class="flex items-start gap-3">
+            <i class="fas fa-exclamation-triangle text-2xl"></i>
+            <div>
+                <div class="font-bold mb-1">⚠️ ${plantName} Alert</div>
+                <div class="text-sm">
+                    <strong>${sensor}:</strong> ${status}<br>
+                    Current: ${currentValue} | Required: ${range}
+                </div>
+                <div class="text-xs mt-2 opacity-90">
+                    <i class="fas fa-lightbulb mr-1"></i>Check notifications page for suggested actions
+                </div>
+            </div>
+            <button onclick="this.parentElement.parentElement.remove()" class="text-white hover:text-gray-200">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    `;
+    document.body.appendChild(notification);
+    
+    // Auto-remove after 10 seconds
+    setTimeout(() => {
+        notification.remove();
+    }, 10000);
+}
+
+/**
+ * Show notification
+ */
+function showNotification(message, type = 'info') {
+    const colors = {
+        success: 'bg-green-500',
+        error: 'bg-red-500',
+        info: 'bg-blue-500',
+        warning: 'bg-yellow-500'
+    };
+    
+    const notification = document.createElement('div');
+    notification.className = `fixed top-4 right-4 ${colors[type]} text-white px-4 py-3 rounded-lg shadow-lg z-50 flex items-center gap-2`;
+    notification.innerHTML = `
+        <i class="fas fa-${type === 'success' ? 'check-circle' : type === 'error' ? 'exclamation-circle' : type === 'warning' ? 'exclamation-triangle' : 'info-circle'}"></i>
+        <span>${message}</span>
+    `;
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.remove();
+    }, 3000);
+}
+
+/**
+ * Reset violation counter with countdown
+ */
+async function resetViolations() {
+    if (!confirm('Reset violation counter to 0? This will clear the consecutive violation count.')) {
+        return;
+    }
+    
+    // Show countdown notification
+    const countdownNotification = document.createElement('div');
+    countdownNotification.className = 'fixed top-4 right-4 bg-yellow-500 text-white px-6 py-4 rounded-lg shadow-lg z-50';
+    countdownNotification.innerHTML = `
+        <div class="flex items-center gap-3">
+            <i class="fas fa-hourglass-half text-2xl"></i>
+            <div>
+                <div class="font-bold">Resetting in <span id="countdown">3</span> seconds...</div>
+                <div class="text-sm opacity-90">Click anywhere to cancel</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(countdownNotification);
+    
+    let cancelled = false;
+    
+    // Cancel on click
+    countdownNotification.onclick = () => {
+        cancelled = true;
+        countdownNotification.remove();
+        showNotification('Reset cancelled', 'info');
+    };
+    
+    // Countdown from 3 to 1
+    for (let i = 3; i > 0; i--) {
+        if (cancelled) return;
+        
+        const countdownElement = document.getElementById('countdown');
+        if (countdownElement) {
+            countdownElement.textContent = i;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+    
+    if (cancelled) return;
+    
+    countdownNotification.remove();
+    
+    // Proceed with reset
+    try {
+        const response = await fetch('reset_plant_violations.php', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/x-www-form-urlencoded'}
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            showNotification('✓ Violation counter reset successfully', 'success');
+            
+            // Update UI
+            const violationCountElement = document.getElementById('violation-count');
+            const violationCounterElement = document.getElementById('violation-counter');
+            
+            if (violationCountElement) {
+                violationCountElement.textContent = '0';
+            }
+            
+            if (violationCounterElement) {
+                violationCounterElement.className = 'px-2 py-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs rounded-full font-medium';
+            }
+        } else {
+            showNotification('Failed to reset: ' + data.message, 'error');
+        }
+    } catch (error) {
+        showNotification('Error resetting violations: ' + error.message, 'error');
+    }
+}
 
 <?php endif; ?>
 </script>

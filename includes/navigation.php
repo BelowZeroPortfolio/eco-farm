@@ -105,6 +105,13 @@ $navigationSections = [
                 'roles' => ['admin'],
                 'description' => 'Manage pest information and severity'
             ],
+            'plant_database' => [
+                'title' => 'Plant Database',
+                'icon' => 'fas fa-seedling',
+                'url' => 'plant_database.php',
+                'roles' => ['admin'],
+                'description' => 'Manage plant profiles and thresholds'
+            ],
             'user_management' => [
                 'title' => 'Users',
                 'icon' => 'fas fa-users',
@@ -370,6 +377,8 @@ function getRoleBadgeClasses($role)
                                 'reports' => 'Reports',
                                 'data_analytics' => 'Data Analytics',
                                 'learning_resources' => 'Learning Resources',
+                                'pest_config' => 'Pest Database',
+                                'plant_database' => 'Plant Database',
                                 'user_management' => 'User Management',
                                 'settings' => 'Settings',
                                 'help' => 'Help & Documentation',
