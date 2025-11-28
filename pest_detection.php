@@ -34,10 +34,12 @@ if ($isAjaxRequest) {
     header('Content-Type: application/json');
 
     try {
-        $pdo = getDatabaseConnection();
-        
         // Get action from either POST or GET
         $action = $_POST['action'] ?? $_GET['action'] ?? '';
+        
+        // Only connect to database for actions that need it
+        $needsDatabase = !in_array($action, ['check_service_health']);
+        $pdo = $needsDatabase ? getDatabaseConnection() : null;
 
         switch ($action) {
             case 'detect_webcam':

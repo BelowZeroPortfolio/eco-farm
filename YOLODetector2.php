@@ -18,16 +18,25 @@ class YOLODetector2
      * Constructor
      * 
      * @param string $serviceUrl URL of Flask service (default: from .env or http://127.0.0.1:5000)
-     * @param int $timeout Request timeout in seconds (default: 10)
-     * @param int $connectTimeout Connection timeout in seconds (default: 5)
+     * @param int $timeout Request timeout in seconds (default: 30 for tunnel latency)
+     * @param int $connectTimeout Connection timeout in seconds (default: 10)
      */
-    public function __construct($serviceUrl = null, $timeout = 10, $connectTimeout = 5)
+    public function __construct($serviceUrl = null, $timeout = 30, $connectTimeout = 10)
     {
         // Load from .env if not provided
         if ($serviceUrl === null) {
+            $protocol = Env::get('YOLO_SERVICE_PROTOCOL', 'http');
             $host = Env::get('YOLO_SERVICE_HOST', '127.0.0.1');
             $port = Env::get('YOLO_SERVICE_PORT', '5000');
-            $serviceUrl = "http://{$host}:{$port}";
+            
+            // Build URL
+            $serviceUrl = "{$protocol}://{$host}";
+            
+            // Only add port if not standard HTTPS/HTTP
+            if (($protocol === 'https' && $port != '443') || 
+                ($protocol === 'http' && $port != '80')) {
+                $serviceUrl .= ":{$port}";
+            }
         }
         
         $this->serviceUrl = rtrim($serviceUrl, '/');
@@ -47,21 +56,39 @@ class YOLODetector2
             
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 2,
-                CURLOPT_CONNECTTIMEOUT => 1
+                CURLOPT_TIMEOUT => 10, // Longer timeout for ngrok
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_FOLLOWLOCATION => true,
+                CURLOPT_SSL_VERIFYPEER => true,
+                CURLOPT_SSL_VERIFYHOST => 2,
+                CURLOPT_HTTPHEADER => [
+                    'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                    'ngrok-skip-browser-warning: true' // Try to bypass ngrok banner
+                ]
             ]);
             
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $error = curl_error($ch);
             curl_close($ch);
             
-            if ($httpCode === 200) {
+            if ($httpCode === 200 && $response) {
                 $data = json_decode($response, true);
-                return isset($data['status']) && $data['status'] === 'healthy';
+                // Check if it's valid JSON and has the expected structure
+                if (json_last_error() === JSON_ERROR_NONE && 
+                    isset($data['status']) && $data['status'] === 'healthy') {
+                    return true;
+                }
+            }
+            
+            // Log error for debugging
+            if ($error) {
+                error_log("YOLO health check failed: HTTP $httpCode, Error: $error");
             }
             
             return false;
         } catch (Exception $e) {
+            error_log("YOLO health check exception: " . $e->getMessage());
             return false;
         }
     }
@@ -124,8 +151,13 @@ class YOLODetector2
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
             CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_SSL_VERIFYPEER => true,  // ngrok provides valid SSL
+            CURLOPT_SSL_VERIFYHOST => 2,     // Verify hostname
+            CURLOPT_FOLLOWLOCATION => true,  // Follow redirects
             CURLOPT_HTTPHEADER => [
-                'Accept: application/json'
+                'Accept: application/json',
+                'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'ngrok-skip-browser-warning: true' // Bypass ngrok banner
             ]
         ]);
         

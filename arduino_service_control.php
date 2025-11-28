@@ -18,8 +18,8 @@ $action = $_POST['action'] ?? '';
 
 function isServiceRunning()
 {
-    // Check if the Python service is running on port 5000
-    $connection = @fsockopen('127.0.0.1', 5000, $errno, $errstr, 1);
+    // Check if the Python service is running on port 5001
+    $connection = @fsockopen('127.0.0.1', 5001, $errno, $errstr, 1);
     if ($connection) {
         fclose($connection);
         return true;
@@ -89,7 +89,7 @@ function getServiceStatus()
     $info = [];
     if ($isRunning) {
         try {
-            $healthCheck = @file_get_contents('http://127.0.0.1:5000/health');
+            $healthCheck = @file_get_contents('http://127.0.0.1:5001/health');
             if ($healthCheck) {
                 $healthData = json_decode($healthCheck, true);
                 $info = [

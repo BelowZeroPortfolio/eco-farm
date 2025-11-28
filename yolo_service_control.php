@@ -5,12 +5,38 @@
  * Handles starting and stopping the Flask YOLO detection service
  */
 
+// Start session FIRST (before any output)
+session_start();
+
+// Then set headers
 header('Content-Type: application/json');
 
+// Load environment configuration
+require_once __DIR__ . '/config/env.php';
+
 // Simple authentication check
-session_start();
 if (!isset($_SESSION['user_id'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
+    exit;
+}
+
+// Check if using ngrok (remote tunnel) - auto-start not supported
+$isUsingTunnel = Env::get('YOLO_SERVICE_PROTOCOL') === 'https' || 
+                 Env::get('YOLO_SERVICE_HOST') !== '127.0.0.1';
+
+if ($isUsingTunnel) {
+    // Using ngrok or remote service - cannot auto-start
+    $response = [
+        'success' => false, 
+        'message' => 'Auto-start not available with ngrok. Please start the service manually on your PC.',
+        'is_tunnel' => true,
+        'instructions' => [
+            'Step 1: Double-click start_yolo_with_ngrok_debug.bat on your laptop',
+            'Step 2: Wait for both services to start',
+            'Step 3: Refresh this page'
+        ]
+    ];
+    echo json_encode($response);
     exit;
 }
 

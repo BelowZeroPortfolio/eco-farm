@@ -12,6 +12,9 @@ require_once 'includes/security.php';
 require_once 'includes/pest-config-helper.php';
 require_once 'YOLODetector2.php';
 
+// Set timezone to Philippine Time
+date_default_timezone_set(Env::get('TIMEZONE', 'Asia/Manila'));
+
 // Check page access permission
 requirePageAccess('pest_detection');
 
@@ -102,13 +105,16 @@ if ($isAjaxRequest) {
                         $severity = 'low';
 
                         if ($confidence >= $confidenceThreshold) {
+                            // Calculate rate limit time in Philippine timezone
+                            $rateLimitTime = date('Y-m-d H:i:s', time() - $rateLimitSeconds);
+                            
                             $stmt = $pdo->prepare("
                                 SELECT COUNT(*) as count 
                                 FROM pest_alerts 
                                 WHERE pest_type = ? 
-                                AND detected_at > DATE_SUB(NOW(), INTERVAL ? SECOND)
+                                AND detected_at > ?
                             ");
-                            $stmt->execute([$pestType, $rateLimitSeconds]);
+                            $stmt->execute([$pestType, $rateLimitTime]);
                             $result = $stmt->fetch();
 
                             if ($result['count'] == 0) {
@@ -119,10 +125,13 @@ if ($isAjaxRequest) {
                                 $commonName = $pestInfo['common_name'];
 
                                 try {
+                                    // Use PHP's current time (already in Philippine timezone)
+                                    $currentTime = date('Y-m-d H:i:s');
+                                    
                                     $stmt = $pdo->prepare("
                                         INSERT INTO pest_alerts 
                                         (pest_type, common_name, location, severity, confidence_score, description, suggested_actions, image_path, detected_at, is_read, notification_sent) 
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), FALSE, FALSE)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE)
                                     ");
 
                                     $location = 'Webcam Detection';
@@ -135,7 +144,8 @@ if ($isAjaxRequest) {
                                         $confidence,
                                         $description,
                                         $suggestedActions,
-                                        $annotatedImagePath
+                                        $annotatedImagePath,
+                                        $currentTime
                                     ]);
                                 } catch (PDOException $e) {
                                     error_log("Database insert error: " . $e->getMessage());
@@ -211,6 +221,60 @@ if ($isAjaxRequest) {
                 ]);
                 break;
 
+            case 'save_browser_detection':
+                // Save detection results that were obtained directly from browser to ngrok
+                $pdo = getDatabaseConnection();
+                
+                $pestsData = json_decode($_POST['pests'] ?? '[]', true);
+                if (!is_array($pestsData)) {
+                    throw new Exception('Invalid pests data');
+                }
+
+                $saved = [];
+                $confidenceThreshold = 60;
+                
+                foreach ($pestsData as $pest) {
+                    $pestType = $pest['type'] ?? 'unknown';
+                    $confidence = $pest['confidence'] ?? 0;
+                    
+                    if ($confidence >= $confidenceThreshold) {
+                        $pestInfo = getPestInfo($pestType);
+                        
+                        try {
+                            // Use PHP's current time (already in Philippine timezone)
+                            $currentTime = date('Y-m-d H:i:s');
+                            
+                            $stmt = $pdo->prepare("
+                                INSERT INTO pest_alerts 
+                                (pest_type, common_name, location, severity, confidence_score, description, suggested_actions, detected_at, is_read, notification_sent) 
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE)
+                            ");
+                            
+                            $stmt->execute([
+                                $pestType,
+                                $pestInfo['common_name'],
+                                'Webcam Detection (Direct)',
+                                $pestInfo['severity'],
+                                $confidence,
+                                $pestInfo['description'],
+                                $pestInfo['actions'],
+                                $currentTime
+                            ]);
+                            
+                            $saved[] = $pestType;
+                        } catch (PDOException $e) {
+                            error_log("Failed to save detection: " . $e->getMessage());
+                        }
+                    }
+                }
+                
+                echo json_encode([
+                    'success' => true,
+                    'saved_count' => count($saved),
+                    'saved_pests' => $saved
+                ]);
+                break;
+
             default:
                 throw new Exception('Invalid action');
         }
@@ -219,6 +283,10 @@ if ($isAjaxRequest) {
     }
     exit;
 }
+
+// Set CSP header to allow ngrok connection (must be before any HTML output)
+$yoloUrl = Env::get('YOLO_SERVICE_PROTOCOL') . '://' . Env::get('YOLO_SERVICE_HOST');
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' {$yoloUrl}; media-src 'self' blob:;");
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -242,59 +310,71 @@ if ($isAjaxRequest) {
         #video-element {
             transform: scaleX(-1);
         }
+        /* Mobile responsive improvements */
+        @media (max-width: 768px) {
+            .desktop-only { display: none !important; }
+            .mobile-stack { flex-direction: column !important; }
+            .mobile-full { width: 100% !important; }
+            .mobile-text-sm { font-size: 0.875rem !important; }
+            .mobile-p-2 { padding: 0.5rem !important; }
+        }
     </style>
 </head>
 <body class="bg-gray-100 dark:bg-gray-900">
 
+<?php
+$isStudent = ($currentUser['role'] === 'student');
+$canUseCamera = !$isStudent; // Only admin/farmer can use camera
+?>
+
 <div class="h-screen flex flex-col">
-    <!-- Header -->
-    <div class="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-3 flex items-center justify-between shadow-lg">
-        <div class="flex items-center gap-3">
-            <i class="fas fa-video text-2xl"></i>
+    <!-- Header - Mobile Responsive -->
+    <div class="bg-gradient-to-r from-green-600 to-blue-600 text-white px-3 md:px-4 py-2 md:py-3 flex items-center justify-between shadow-lg">
+        <div class="flex items-center gap-2 md:gap-3">
+            <i class="fas fa-bug text-xl md:text-2xl"></i>
             <div>
-                <h1 class="text-lg font-bold">Pest Detection Monitor</h1>
-                <p class="text-xs text-blue-100">Real-time AI Monitoring</p>
+                <h1 class="text-base md:text-lg font-bold">Pest Detection</h1>
+                <p class="text-xs text-green-100"><?php echo $isStudent ? 'Upload Mode' : 'Full Access'; ?></p>
             </div>
         </div>
-        <button onclick="window.close()" class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors">
-            <i class="fas fa-times mr-2"></i>Close Window
+        <button onclick="window.close()" class="px-3 md:px-4 py-1.5 md:py-2 bg-white/20 hover:bg-white/30 rounded-lg transition-colors text-sm md:text-base">
+            <i class="fas fa-times mr-1 md:mr-2"></i><span class="hidden sm:inline">Close</span>
         </button>
     </div>
 
-    <!-- Main Content -->
-    <div class="flex-1 flex overflow-hidden">
-        <!-- Left: Camera Feed (70%) -->
-        <div class="flex-1 flex flex-col p-4">
-            <!-- Camera Controls -->
-            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg mb-4 p-4">
-                <div class="flex items-center justify-between gap-4">
-                    <div class="flex items-center gap-3">
-                        <div id="camera-status-indicator" class="w-3 h-3 bg-gray-400 rounded-full"></div>
-                        <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Camera Status: 
+    <!-- Main Content - Mobile Responsive -->
+    <div class="flex-1 flex mobile-stack overflow-hidden">
+        <!-- Left: Upload/Camera Area -->
+        <div class="flex-1 flex flex-col p-2 md:p-4">
+            <!-- Simple Upload Card for Students -->
+            <!-- Controls -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow-lg mb-3 md:mb-4 p-3 md:p-4">
+                <div class="flex flex-wrap items-center justify-between gap-2 md:gap-4">
+                    <div class="flex items-center gap-2 md:gap-3">
+                        <div id="camera-status-indicator" class="w-2.5 h-2.5 md:w-3 md:h-3 bg-gray-400 rounded-full"></div>
+                        <span class="text-xs md:text-sm font-medium text-gray-700 dark:text-gray-300">
+                            <span class="hidden sm:inline">Camera: </span>
                             <span id="camera-status-text" class="font-bold">OFF</span>
                         </span>
                     </div>
                     
-                    <div class="flex items-center gap-2">
-                        <!-- Upload Image Button -->
+                    <div class="flex flex-wrap items-center gap-2">
                         <button onclick="document.getElementById('upload-input').click()" 
-                                class="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
+                                class="px-3 md:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-medium rounded-lg transition-colors flex items-center gap-1 md:gap-2 text-sm md:text-base">
                             <i class="fas fa-upload"></i>
-                            <span>Upload Image</span>
+                            <span class="hidden sm:inline">Upload</span>
                         </button>
                         
-                        <!-- Toggle Camera Button -->
                         <button id="camera-toggle-btn" onclick="toggleCamera()" 
-                                class="px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
+                                class="px-3 md:px-6 py-2 bg-green-600 hover:bg-green-700 text-white font-medium rounded-lg transition-colors flex items-center gap-1 md:gap-2 text-sm md:text-base <?php echo $isStudent ? 'hidden' : ''; ?>">
                             <i class="fas fa-play"></i>
-                            <span>Start Camera</span>
+                            <span>Camera</span>
                         </button>
                         
-                        <!-- Detection Toggle (only shows when camera is on) -->
                         <button id="detection-toggle-btn" onclick="toggleDetection()" 
-                                class="hidden px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2">
+                                class="hidden px-3 md:px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors items-center gap-1 md:gap-2 text-sm md:text-base <?php echo $isStudent ? 'hidden' : ''; ?>">
                             <i class="fas fa-brain"></i>
-                            <span>Start AI Detection</span>
+                            <span class="hidden sm:inline">AI </span><span>Detect</span>
                         </button>
                     </div>
                 </div>
@@ -346,8 +426,8 @@ if ($isAjaxRequest) {
             </div>
         </div>
 
-        <!-- Right: Recent Detections (30%) -->
-        <div class="w-96 bg-white dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col">
+        <!-- Right: Recent Detections - Mobile Responsive -->
+        <div class="w-full md:w-96 bg-white dark:bg-gray-800 border-t md:border-t-0 md:border-l border-gray-200 dark:border-gray-700 flex flex-col">
             <div class="p-4 border-b border-gray-200 dark:border-gray-700">
                 <h2 class="text-lg font-bold text-gray-900 dark:text-white flex items-center">
                     <i class="fas fa-history text-blue-600 mr-2"></i>
@@ -366,11 +446,15 @@ if ($isAjaxRequest) {
     </div>
 </div>
 
-<script src="js/yolo-auto-start.js"></script>
+<!-- Auto-start disabled for ngrok setup - service must be started manually on laptop -->
+<!-- <script src="js/yolo-auto-start.js"></script> -->
 <script>
 // ============================================================================
 // GLOBAL STATE
 // ============================================================================
+
+const USER_ROLE = '<?php echo $currentUser['role']; ?>';
+const CAN_USE_CAMERA = <?php echo $canUseCamera ? 'true' : 'false'; ?>;
 
 let currentStream = null;
 let detectionInterval = null;
@@ -386,11 +470,19 @@ const captureCanvas = document.getElementById('capture-canvas');
 const cameraPlaceholder = document.getElementById('camera-placeholder');
 const aiOverlay = document.getElementById('ai-overlay');
 
+console.log('User role:', USER_ROLE, 'Can use camera:', CAN_USE_CAMERA);
+
 // ============================================================================
 // CAMERA CONTROL - TOGGLE BUTTON
 // ============================================================================
 
 async function toggleCamera() {
+    // Check if user has permission
+    if (!CAN_USE_CAMERA) {
+        alert('Camera access is restricted to Admin and Farmer roles only. Students can use the Upload Image feature.');
+        return;
+    }
+    
     if (isCameraOn) {
         stopCamera();
     } else {
@@ -399,11 +491,18 @@ async function toggleCamera() {
 }
 
 async function startCamera() {
+    // Double-check permission
+    if (!CAN_USE_CAMERA) {
+        alert('Camera access is restricted.');
+        return;
+    }
+    
     try {
         const constraints = {
             video: {
                 width: { ideal: 1280 },
-                height: { ideal: 720 }
+                height: { ideal: 720 },
+                facingMode: 'environment' // Use back camera on mobile
             }
         };
 
@@ -584,6 +683,7 @@ async function sendFrameForDetection(blob) {
     if (!isDetecting) return;
 
     try {
+        // Send through PHP backend (works around CSP restrictions)
         const formData = new FormData();
         formData.append('action', 'detect_webcam');
         formData.append('image', blob, 'frame.jpg');
@@ -597,17 +697,15 @@ async function sendFrameForDetection(blob) {
 
         if (!isDetecting) return;
 
-        if (data.success) {
+        if (data.success && data.detections && data.detections.length > 0) {
             console.log('Detections:', data.detections);
 
-            if (data.detections && data.detections.length > 0) {
-                const newDetections = data.detections.filter(d => d.logged);
-
-                if (newDetections.length > 0) {
-                    detectionCount += newDetections.length;
-                    document.getElementById('detection-count').textContent = detectionCount;
-                    loadRecentDetections();
-                }
+            const newDetections = data.detections.filter(d => d.logged);
+            
+            if (newDetections.length > 0) {
+                detectionCount += newDetections.length;
+                document.getElementById('detection-count').textContent = detectionCount;
+                loadRecentDetections();
             }
         }
 

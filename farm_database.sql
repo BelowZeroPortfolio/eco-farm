@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: Oct 23, 2025 at 07:20 AM
+-- Generation Time: Nov 24, 2025 at 08:53 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -74,7 +74,8 @@ INSERT INTO `password_resets` (`id`, `user_id`, `token`, `expires_at`, `used`, `
 (15, 3, '14eb94904bf66849d84234d38311bfc6210dfda4bfcf7b86fa5529bac550dd71', '2025-10-21 21:09:28', 1, '2025-10-21 12:09:28'),
 (16, 3, '0ad3ece8fd1ef1ebc38196df3d7ce976bc152c853ab86894ad181dd177b98e5c', '2025-10-21 21:09:56', 1, '2025-10-21 12:09:56'),
 (17, 3, '0a16dec7e65294216cce4f9aa2071923f9e859d7e02c4036f6948cd0a2c266d7', '2025-10-21 21:12:55', 1, '2025-10-21 12:12:55'),
-(18, 3, '69150101ee7f868e281f52f02f1b74795f996603e1860b55ae4efe15fbc6f8fb', '2025-10-21 22:22:34', 0, '2025-10-21 13:22:34');
+(18, 3, '69150101ee7f868e281f52f02f1b74795f996603e1860b55ae4efe15fbc6f8fb', '2025-10-21 22:22:34', 1, '2025-10-21 13:22:34'),
+(19, 3, '23b74cf8dabc73f3f01f5084550bb6ed1b83e54c88d375e449a49e219091e0fa', '2025-10-30 12:05:37', 1, '2025-10-30 03:05:37');
 
 -- --------------------------------------------------------
 
@@ -108,7 +109,14 @@ CREATE TABLE `pest_alerts` (
 --
 
 INSERT INTO `pest_alerts` (`id`, `camera_id`, `pest_type`, `common_name`, `location`, `severity`, `status`, `confidence_score`, `is_read`, `read_at`, `read_by`, `notification_sent`, `notification_sent_at`, `image_path`, `description`, `suggested_actions`, `detected_at`, `updated_at`) VALUES
-(1, NULL, 'mole cricket', 'Kamaro / Cricket sa lupa', 'Webcam Detection', 'medium', 'new', 69.10, 0, NULL, NULL, 0, NULL, NULL, 'Tunnels uproot seedlings. 10-20% seedling loss.', 'Use poison baits in evening. Flood fields overnight. Apply fipronil 500ml/ha.', '2025-10-23 00:17:57', '2025-10-23 00:17:57');
+(16, NULL, 'mole cricket', 'Kamaro / Cricket sa lupa', 'Webcam Detection', 'medium', 'new', 72.20, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_094232_cefcf3d2.jpg', 'Tunnels uproot seedlings. 10-20% seedling loss.', 'Use poison baits in evening. Flood fields overnight. Apply fipronil 500ml/ha.', '2025-11-20 01:42:32', '2025-11-20 01:42:32'),
+(17, NULL, 'aphids', 'Kuto ng halaman', 'Webcam Detection', 'high', 'new', 72.00, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_094308_6b3cd6f3.jpg', 'Transmits viruses, causes stunting. 20-50% yield loss.', 'Apply imidacloprid 100ml/ha or acetamiprid 100g/ha. Release ladybugs. Use reflective mulch.', '2025-11-20 01:43:08', '2025-11-20 01:43:08'),
+(18, NULL, 'aphids', 'Kuto ng halaman', 'Webcam Detection', 'high', 'new', 75.50, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_095034_3b625d22.jpg', 'Transmits viruses, causes stunting. 20-50% yield loss.', 'Apply imidacloprid 100ml/ha or acetamiprid 100g/ha. Release ladybugs. Use reflective mulch.', '2025-11-20 01:50:34', '2025-11-20 01:50:34'),
+(19, NULL, 'rice leaf roller', 'Tagapagkulong ng dahon ng palay', 'Webcam Detection', 'high', 'new', 76.80, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_095356_53b7b5d2.jpg', 'Rolls leaves reducing photosynthesis. 10-30% yield loss.', 'Apply chlorantraniliprole 60ml/ha or flubendiamide 100ml/ha. Drain field 2 days before spraying. Preserve spiders and wasps.', '2025-11-20 01:53:56', '2025-11-20 01:53:56'),
+(20, NULL, 'Limacodidae', 'Uod-balat / slug caterpillar', 'Webcam Detection', 'low', 'new', 74.10, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_095849_8fbc5964.jpg', 'Slug caterpillars. <5% defoliation.', 'Hand-pick with gloves. Usually minor.', '2025-11-20 01:58:49', '2025-11-20 01:58:49'),
+(21, NULL, 'oides decempunctata', 'Salagubang ng dahon', 'Webcam Detection', 'low', 'new', 62.80, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_100041_821c649d.jpg', 'Leaf beetle. <8% defoliation.', 'Monitor and hand-pick if necessary.', '2025-11-20 02:00:41', '2025-11-20 02:00:41'),
+(22, NULL, 'rice leaf roller', 'Tagapagkulong ng dahon ng palay', 'Webcam Detection', 'high', 'new', 76.80, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_100102_a810b419.jpg', 'Rolls leaves reducing photosynthesis. 10-30% yield loss.', 'Apply chlorantraniliprole 60ml/ha or flubendiamide 100ml/ha. Drain field 2 days before spraying. Preserve spiders and wasps.', '2025-11-20 02:01:02', '2025-11-20 02:01:02'),
+(23, NULL, 'aphids', 'Kuto ng halaman', 'Webcam Detection', 'high', 'new', 68.40, 0, NULL, NULL, 0, NULL, 'detections/detection_20251120_100251_40f97a3e.jpg', 'Transmits viruses, causes stunting. 20-50% yield loss.', 'Apply imidacloprid 100ml/ha or acetamiprid 100g/ha. Release ladybugs. Use reflective mulch.', '2025-11-20 02:02:51', '2025-11-20 02:02:51');
 
 -- --------------------------------------------------------
 
@@ -267,6 +275,29 @@ CREATE TABLE `sensors` (
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `sensor_alerts`
+--
+
+CREATE TABLE `sensor_alerts` (
+  `id` int(11) NOT NULL,
+  `sensor_id` int(11) NOT NULL,
+  `sensor_type` varchar(50) NOT NULL,
+  `sensor_value` decimal(10,2) NOT NULL,
+  `threshold_min` decimal(10,2) DEFAULT NULL,
+  `threshold_max` decimal(10,2) DEFAULT NULL,
+  `severity` enum('low','medium','high','critical') NOT NULL,
+  `status` enum('new','acknowledged','resolved') DEFAULT 'new',
+  `message` text NOT NULL,
+  `is_read` tinyint(1) DEFAULT 0,
+  `read_at` timestamp NULL DEFAULT NULL,
+  `read_by` int(11) DEFAULT NULL,
+  `detected_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='Sensor threshold alerts';
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `sensor_readings`
 --
 
@@ -301,9 +332,9 @@ CREATE TABLE `users` (
 --
 
 INSERT INTO `users` (`id`, `username`, `password`, `email`, `role`, `status`, `last_login`, `created_at`, `updated_at`) VALUES
-(1, 'admin', '$2y$10$HXtzKW2gWBWgIcPgx5A56eDU1b95Bg6MpkjDis0Eo.tbUekvhFqNS', 'admin@farms.com', 'admin', 'active', '2025-10-22 09:02:56', '2025-10-20 14:59:13', '2025-10-22 09:02:56'),
+(1, 'admin', '$2y$10$HXtzKW2gWBWgIcPgx5A56eDU1b95Bg6MpkjDis0Eo.tbUekvhFqNS', 'admin@farms.com', 'admin', 'active', '2025-11-20 00:58:16', '2025-10-20 14:59:13', '2025-11-20 00:58:16'),
 (2, 'farmer1', '$2y$10$oiF/VWG/vKYk8g3yDNcNk.jRVf17DScq2mN/IVOpDAOm/q4ol8KGe', 'farmer1@farm.com', 'farmer', 'active', '2025-10-21 05:27:32', '2025-10-20 14:59:13', '2025-10-21 05:27:32'),
-(3, 'student1', '$2y$10$E16YZTlMJYZ1etx1P64V8eXEpL7h1eq.tNzmBcV4oPkwMOo0fIZpO', 'kang2x2k17@gmail.com', 'student', 'active', '2025-10-21 13:36:33', '2025-10-20 14:59:13', '2025-10-21 13:55:26'),
+(3, 'student1', '$2y$10$wocSMOs9S1i.C6R2d1tHyuzsTxGcMFbxjNfzhURbVtQy1cKhI4eIy', 'kang2x2k17@gmail.com', 'student', 'active', '2025-10-30 03:06:42', '2025-10-20 14:59:13', '2025-10-30 03:06:42'),
 (4, 'farmer2', '$2y$10$oiF/VWG/vKYk8g3yDNcNk.jRVf17DScq2mN/IVOpDAOm/q4ol8KGe', 'farmer2@farm.com', 'farmer', 'active', '2025-10-20 11:59:13', '2025-10-20 14:59:13', '2025-10-20 14:59:13'),
 (5, 'student2', '$2y$10$oiF/VWG/vKYk8g3yDNcNk.jRVf17DScq2mN/IVOpDAOm/q4ol8KGe', 'student2@university.edu', 'student', 'inactive', NULL, '2025-10-20 14:59:13', '2025-10-20 14:59:13');
 
@@ -327,7 +358,7 @@ CREATE TABLE `user_settings` (
 --
 
 INSERT INTO `user_settings` (`id`, `user_id`, `setting_key`, `setting_value`, `created_at`, `updated_at`) VALUES
-(1, 1, 'sensor_logging_interval', '30', '2025-10-23 00:55:59', '2025-10-23 03:34:16');
+(1, 1, 'sensor_logging_interval', '30', '2025-10-23 00:55:59', '2025-10-25 14:05:57');
 
 --
 -- Indexes for dumped tables
@@ -387,6 +418,18 @@ ALTER TABLE `sensors`
   ADD KEY `idx_status` (`status`);
 
 --
+-- Indexes for table `sensor_alerts`
+--
+ALTER TABLE `sensor_alerts`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `read_by` (`read_by`),
+  ADD KEY `idx_sensor_id` (`sensor_id`),
+  ADD KEY `idx_severity` (`severity`),
+  ADD KEY `idx_status` (`status`),
+  ADD KEY `idx_is_read` (`is_read`),
+  ADD KEY `idx_detected_at` (`detected_at`);
+
+--
 -- Indexes for table `sensor_readings`
 --
 ALTER TABLE `sensor_readings`
@@ -422,13 +465,13 @@ ALTER TABLE `cameras`
 -- AUTO_INCREMENT for table `password_resets`
 --
 ALTER TABLE `password_resets`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=19;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=20;
 
 --
 -- AUTO_INCREMENT for table `pest_alerts`
 --
 ALTER TABLE `pest_alerts`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=24;
 
 --
 -- AUTO_INCREMENT for table `pest_config`
@@ -441,6 +484,12 @@ ALTER TABLE `pest_config`
 --
 ALTER TABLE `sensors`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+
+--
+-- AUTO_INCREMENT for table `sensor_alerts`
+--
+ALTER TABLE `sensor_alerts`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT for table `sensor_readings`
@@ -483,6 +532,13 @@ ALTER TABLE `pest_alerts`
 ALTER TABLE `pest_config`
   ADD CONSTRAINT `pest_config_ibfk_1` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE SET NULL,
   ADD CONSTRAINT `pest_config_ibfk_2` FOREIGN KEY (`updated_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
+
+--
+-- Constraints for table `sensor_alerts`
+--
+ALTER TABLE `sensor_alerts`
+  ADD CONSTRAINT `sensor_alerts_ibfk_1` FOREIGN KEY (`sensor_id`) REFERENCES `sensors` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `sensor_alerts_ibfk_2` FOREIGN KEY (`read_by`) REFERENCES `users` (`id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `sensor_readings`

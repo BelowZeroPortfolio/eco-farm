@@ -12,9 +12,10 @@ class Env
     private static $loaded = false;
 
     /**
-     * Load environment variables from .env file
+     * Load environment variables from hardcoded configuration
+     * Compatible with InfinityFree hosting (no .env file support)
      * 
-     * @param string $envFile Path to .env file
+     * @param string $envFile Path to .env file (deprecated, kept for compatibility)
      * @return void
      */
     public static function load($envFile = null)
@@ -23,48 +24,67 @@ class Env
             return;
         }
 
-        if ($envFile === null) {
-            $envFile = __DIR__ . '/../.env';
-        }
+        // ============================================
+        // HARDCODED CONFIGURATION FOR INFINITYFREE
+        // ============================================
+        // IMPORTANT: Update these values with your actual InfinityFree database credentials
+        // You can find these in your InfinityFree control panel under MySQL Databases
+        
+        self::$config = [
+            // Database Configuration
+            'DB_HOST' => 'sql100.infinityfree.com',                    // Usually 'localhost' or 'sqlXXX.infinityfree.com'
+            'DB_NAME' => 'if0_40518906_farm_database',                // Your InfinityFree database name (e.g., epiz_12345678_farm)
+            'DB_USER' => 'if0_40518906',                         // Your InfinityFree database username (e.g., epiz_12345678)
+            'DB_PASS' => '5vgtAfWmavQZH',                             // Your InfinityFree database password
+            'DB_CHARSET' => 'utf8mb4',
+            
+            // Application Configuration
+            'APP_NAME' => 'IoT Farm Monitoring System',
+            'APP_ENV' => 'production',                   // 'development' or 'production'
+            'APP_DEBUG' => 'false',                      // Set to 'false' in production
+            'APP_URL' => 'https://sagayecofarm.infinityfreeapp.com/', // Your InfinityFree domain
 
-        if (!file_exists($envFile)) {
-            error_log("Warning: .env file not found at {$envFile}");
-            self::$loaded = true;
-            return;
-        }
-
-        $envContent = file_get_contents($envFile);
-        if ($envContent === false) {
-            error_log("Warning: Could not read .env file at {$envFile}");
-            self::$loaded = true;
-            return;
-        }
-
-        // Parse .env file line by line
-        $lines = explode("\n", $envContent);
-        foreach ($lines as $line) {
-            $line = trim($line);
-
-            // Skip empty lines and comments
-            if (empty($line) || strpos($line, '#') === 0) {
-                continue;
-            }
-
-            // Parse KEY=VALUE format
-            if (strpos($line, '=') !== false) {
-                list($key, $value) = explode('=', $line, 2);
-                $key = trim($key);
-                $value = trim($value);
-
-                // Remove quotes if present
-                if ((substr($value, 0, 1) === '"' && substr($value, -1) === '"') ||
-                    (substr($value, 0, 1) === "'" && substr($value, -1) === "'")) {
-                    $value = substr($value, 1, -1);
-                }
-
-                self::$config[$key] = $value;
-            }
-        }
+            'YOLO_SERVICE_HOST' => 'unsmarting-unraving-elinore.ngrok-free.dev',  // Your tunnel subdomain
+            'YOLO_SERVICE_PORT' => '443',  // HTTPS port
+            'YOLO_SERVICE_PROTOCOL' => 'https',  // Use HTTPS through tunnel
+            
+            // Session Configuration
+            'SESSION_LIFETIME' => '7200',                // 2 hours in seconds
+            'SESSION_SECURE' => 'false',                 // Set to 'true' if using HTTPS
+            'SESSION_HTTPONLY' => 'true',
+            
+            // Security Configuration
+            'SECURITY_KEY' => 'change-this-to-random-string-' . md5(__DIR__), // Change this!
+            'CSRF_ENABLED' => 'true',
+            'XSS_PROTECTION' => 'true',
+            
+            // File Upload Configuration
+            'UPLOAD_MAX_SIZE' => '5242880',              // 5MB in bytes
+            'ALLOWED_IMAGE_TYPES' => 'jpg,jpeg,png,gif',
+            
+            // Timezone
+            'TIMEZONE' => 'Asia/Manila',
+            
+            // Email Configuration (if needed)
+            'MAIL_HOST' => 'smtp.gmail.com',
+            'MAIL_PORT' => '587',
+            'MAIL_USERNAME' => '',                       // Your email
+            'MAIL_PASSWORD' => '',                       // Your email password
+            'MAIL_FROM_ADDRESS' => 'noreply@yourdomain.com',
+            'MAIL_FROM_NAME' => 'Farm Monitor',
+            
+            // API Keys (if needed)
+            'WEATHER_API_KEY' => '',                     // OpenWeatherMap API key
+            
+            // Feature Flags
+            'ENABLE_NOTIFICATIONS' => 'true',
+            'ENABLE_EMAIL_ALERTS' => 'false',            // Email not reliable on free hosting
+            'ENABLE_WEATHER_API' => 'false',
+            
+            // Logging
+            'LOG_LEVEL' => 'error',                      // 'debug', 'info', 'warning', 'error'
+            'LOG_FILE' => 'logs/app.log',
+        ];
 
         self::$loaded = true;
     }

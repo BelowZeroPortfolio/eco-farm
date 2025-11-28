@@ -3,6 +3,11 @@
 // Load environment configuration
 require_once __DIR__ . '/env.php';
 
+// Load error handler if it exists
+if (file_exists(__DIR__ . '/../includes/error-handler.php')) {
+    require_once __DIR__ . '/../includes/error-handler.php';
+}
+
 // Database configuration constants from .env
 define('DB_HOST', Env::get('DB_HOST', 'localhost'));
 define('DB_NAME', Env::get('DB_NAME', 'farm_database'));
@@ -47,14 +52,22 @@ function getDatabaseConnection()
             $connectionAttempts++;
             $lastAttemptTime = $currentTime;
 
-            ErrorHandler::logError("Database connection failed (attempt {$connectionAttempts}): " . $e->getMessage(), [
-                'host' => DB_HOST,
-                'database' => DB_NAME,
-                'error_code' => $e->getCode()
-            ]);
+            // Log error
+            if (class_exists('ErrorHandler')) {
+                ErrorHandler::logError("Database connection failed (attempt {$connectionAttempts}): " . $e->getMessage(), [
+                    'host' => DB_HOST,
+                    'database' => DB_NAME,
+                    'error_code' => $e->getCode()
+                ]);
+            } else {
+                error_log("Database connection failed: " . $e->getMessage());
+            }
 
             // Provide user-friendly error message
-            throw new PDOException(ErrorHandler::showUserFriendlyError('database_error'));
+            $errorMsg = class_exists('ErrorHandler') 
+                ? ErrorHandler::showUserFriendlyError('database_error')
+                : 'Database connection failed. Please check your configuration.';
+            throw new PDOException($errorMsg);
         }
     }
 

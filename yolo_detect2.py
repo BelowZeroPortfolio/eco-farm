@@ -5,6 +5,7 @@ Persistent service that keeps the model loaded in memory for faster detection.
 """
 
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from ultralytics import YOLO
 import io
 from PIL import Image
@@ -14,6 +15,19 @@ import uuid
 from datetime import datetime
 
 app = Flask(__name__)
+
+# Enable CORS for all routes
+CORS(app, resources={
+    r"/*": {
+        "origins": [
+            "https://sagayecofarm.infinityfreeapp.com",
+            "http://localhost:*",
+            "http://127.0.0.1:*"
+        ],
+        "methods": ["GET", "POST", "OPTIONS"],
+        "allow_headers": ["Content-Type", "ngrok-skip-browser-warning"]
+    }
+})
 
 # Global model variable
 model = None
@@ -182,6 +196,22 @@ def info():
 if __name__ == '__main__':
     # Load model before starting server
     load_model()
+    
+    # Display ngrok tunnel information
+    print("\n" + "=" * 60)
+    print("🌐 ngrok TUNNEL SETUP")
+    print("=" * 60)
+    print("Local URL:  http://127.0.0.1:5000")
+    print("=" * 60)
+    print("\n💡 NEXT STEPS:")
+    print("   1. Open another terminal")
+    print("   2. Run: ngrok http 5000")
+    print("   3. Copy the HTTPS URL from ngrok")
+    print("   4. Update config/env.php with the URL")
+    print("   5. Upload to InfinityFree")
+    print("=" * 60)
+    print("\n✅ Flask service is ready and waiting for requests...")
+    print("=" * 60 + "\n")
     
     # Start Flask server
     # Note: debug=False for production, use True only for development

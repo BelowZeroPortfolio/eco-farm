@@ -1,0 +1,51 @@
+📤 FILES TO UPLOAD TO INFINITYFREE
+=====================================
+
+After making changes locally, upload these files to InfinityFree:
+
+✅ REQUIRED - Upload these 2 files:
+   1. yolo_service_control.php
+   2. js/yolo-auto-start.js
+   
+   Locations on InfinityFree:
+   - /htdocs/yolo_service_control.php
+   - /htdocs/js/yolo-auto-start.js
+
+📝 WHAT CHANGED:
+   - Fixed session_start() order in yolo_service_control.php (prevents 500 errors)
+   - Updated yolo-auto-start.js to detect ngrok and stop retrying
+   - Better error handling for tunnel/ngrok setup
+
+🎯 HOW TO USE THE SYSTEM:
+
+1. On YOUR LAPTOP:
+   ✅ Run: start_yolo_with_ngrok_debug.bat
+   ✅ Keep both windows open (Flask + ngrok)
+   ✅ Services should show "SUCCESS!"
+
+2. UPLOAD FILES TO INFINITYFREE:
+   ✅ Upload yolo_service_control.php
+   ✅ Upload js/yolo-auto-start.js
+
+3. On INFINITYFREE WEBSITE:
+   ✅ Go to: https://sagayecofarm.infinityfreeapp.com/pest_detection.php
+   ✅ Click "Open Pest Monitor" (purple button)
+   ✅ You'll see a message about manual start (this is normal)
+   ✅ Click OK and the detection will work!
+
+⚠️ IMPORTANT NOTES:
+
+- The auto-start will detect you're using ngrok and show a one-time alert
+- This is NORMAL - just click OK
+- The detection will work after you click OK
+- Don't click "Start Service" button (it won't work with ngrok)
+
+🔧 IF NGROK URL CHANGES:
+
+1. Get new URL from ngrok window
+2. Update config/env.php:
+   'YOLO_SERVICE_HOST' => 'your-new-url.ngrok-free.app',
+3. Upload config/env.php to InfinityFree
+
+=====================================
+Last Updated: November 26, 2025
