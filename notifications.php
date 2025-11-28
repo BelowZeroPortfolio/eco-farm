@@ -48,6 +48,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     } catch (Exception $e) {
                         echo json_encode(['success' => false, 'message' => $e->getMessage()]);
                     }
+                }
+                // Check if it's a plant alert
+                elseif (strpos($notificationId, 'plant_') === 0) {
+                    $alertId = str_replace('plant_', '', $notificationId);
+                    try {
+                        $pdo = getDatabaseConnection();
+                        $stmt = $pdo->prepare("
+                            UPDATE Notifications 
+                            SET IsRead = 1, ReadAt = NOW() 
+                            WHERE NotificationID = ?
+                        ");
+                        $success = $stmt->execute([$alertId]);
+                        echo json_encode(['success' => $success]);
+                    } catch (Exception $e) {
+                        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+                    }
                 } else {
                     $success = markNotificationAsRead($notificationId);
                     echo json_encode(['success' => $success]);
@@ -60,6 +76,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         case 'mark_all_read':
             try {
                 $pdo = getDatabaseConnection();
+                
                 // Mark all pest alerts as read
                 $stmt = $pdo->prepare("
                     UPDATE pest_alerts 
@@ -67,9 +84,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     WHERE is_read = FALSE
                 ");
                 $stmt->execute([$currentUser['id']]);
-                $count = $stmt->rowCount();
+                $pestCount = $stmt->rowCount();
+                
+                // Mark all plant alerts as read
+                $stmt = $pdo->prepare("
+                    UPDATE Notifications 
+                    SET IsRead = 1, ReadAt = NOW() 
+                    WHERE IsRead = 0
+                ");
+                $stmt->execute();
+                $plantCount = $stmt->rowCount();
+                
+                $totalCount = $pestCount + $plantCount;
 
-                echo json_encode(['success' => true, 'message' => "{$count} notifications marked as read"]);
+                echo json_encode(['success' => true, 'message' => "{$totalCount} notifications marked as read"]);
+            } catch (Exception $e) {
+                echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+            }
+            exit;
+
+        case 'delete_all':
+            try {
+                $pdo = getDatabaseConnection();
+                
+                // Delete all pest alerts
+                $stmt = $pdo->prepare("DELETE FROM pest_alerts");
+                $stmt->execute();
+                $pestCount = $stmt->rowCount();
+                
+                // Delete all plant alerts
+                $stmt = $pdo->prepare("DELETE FROM Notifications");
+                $stmt->execute();
+                $plantCount = $stmt->rowCount();
+                
+                $totalCount = $pestCount + $plantCount;
+
+                echo json_encode(['success' => true, 'message' => "{$totalCount} notifications deleted"]);
             } catch (Exception $e) {
                 echo json_encode(['success' => false, 'message' => $e->getMessage()]);
             }
@@ -156,6 +206,12 @@ include 'includes/navigation.php';
                     <i class="fas fa-sync-alt mr-2"></i>
                     <span class="hidden sm:inline">Refresh</span>
                 </button>
+                <?php if ($notificationCounts['all'] > 0): ?>
+                <button onclick="deleteAllNotifications()" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center shadow-sm hover:shadow">
+                    <i class="fas fa-trash mr-2"></i>
+                    <span class="hidden sm:inline">Delete All</span>
+                </button>
+                <?php endif; ?>
                 <?php if ($notificationCounts['unread'] > 0): ?>
                 <button onclick="markAllAsRead()" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all duration-200 flex items-center shadow-sm hover:shadow">
                     <i class="fas fa-check-double mr-2"></i>
@@ -337,7 +393,7 @@ include 'includes/navigation.php';
                         <div id="details-<?php echo $notification['id']; ?>" class="hidden mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
                             <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-4">
                                 <h4 class="text-sm font-medium text-gray-900 dark:text-white mb-3">Notification Details</h4>
-                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs mb-4">
                                     <div>
                                         <span class="font-medium text-gray-700 dark:text-gray-300">Type:</span>
                                         <span class="text-gray-600 dark:text-gray-400 ml-2"><?php echo ucfirst($type); ?></span>
@@ -360,6 +416,20 @@ include 'includes/navigation.php';
                                         </div>
                                     <?php endif; ?>
                                 </div>
+                                
+                                <?php if (isset($notification['suggested_action']) && !empty($notification['suggested_action'])): ?>
+                                    <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-600">
+                                        <h5 class="text-sm font-medium text-gray-900 dark:text-white mb-2 flex items-center">
+                                            <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                                            Suggested Action
+                                        </h5>
+                                        <div class="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                            <p class="text-sm text-blue-900 dark:text-blue-100">
+                                                <?php echo htmlspecialchars($notification['suggested_action']); ?>
+                                            </p>
+                                        </div>
+                                    </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                     </div>
@@ -470,6 +540,40 @@ include 'includes/navigation.php';
                     }, 1000);
                 } else {
                     showToast(data.message || 'Failed to mark all notifications as read', 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showToast('Network error occurred', 'error');
+            });
+    }
+
+    function deleteAllNotifications() {
+        if (!confirm('⚠️ Delete ALL notifications permanently?\n\nThis action cannot be undone!\n\nThis will delete:\n• All pest alerts\n• All plant threshold alerts\n• All system notifications')) {
+            return;
+        }
+
+        // Second confirmation for safety
+        if (!confirm('Are you absolutely sure? This will permanently delete all notification data from the database.')) {
+            return;
+        }
+
+        fetch('notifications.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'action=delete_all'
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showToast(data.message, 'success');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    showToast(data.message || 'Failed to delete notifications', 'error');
                 }
             })
             .catch(error => {
