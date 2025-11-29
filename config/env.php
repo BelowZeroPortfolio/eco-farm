@@ -48,6 +48,14 @@ class Env
             'YOLO_SERVICE_PORT' => '443',  // HTTPS port
             'YOLO_SERVICE_PROTOCOL' => 'https',  // Use HTTPS through tunnel
             
+            // Arduino Sensor Configuration
+            'ARDUINO_SENSOR_HOST' => 'fredda-unprecisive-unashamedly.ngrok-free.dev',  // Your Arduino ngrok tunnel
+            'ARDUINO_SENSOR_PORT' => '443',  // HTTPS port
+            'ARDUINO_SENSOR_PROTOCOL' => 'https',  // Use HTTPS through tunnel
+            
+            // Upload API Key (for sensor data uploads)
+            'UPLOAD_API_KEY' => 'sagayeco-farm-2024-secure-key-xyz789',
+            
             // Session Configuration
             'SESSION_LIFETIME' => '7200',                // 2 hours in seconds
             'SESSION_SECURE' => 'false',                 // Set to 'true' if using HTTPS
