@@ -13,19 +13,52 @@ class ArduinoBridge
     private $serviceUrl;
     private $timeout;
     private $connectTimeout;
+    private $useNgrok = false;
+    private $ngrokHeaders = [];
 
     public function __construct($serviceUrl = null, $timeout = 5, $connectTimeout = 3)
     {
-        // Load from .env if not provided
         if ($serviceUrl === null) {
-            $host = Env::get('ARDUINO_SERVICE_HOST', '127.0.0.1');
-            $port = Env::get('ARDUINO_SERVICE_PORT', '5000');
-            $serviceUrl = "http://{$host}:{$port}";
+            // Check if we should use ngrok (for InfinityFree/remote) or local
+            $ngrokHost = Env::get('ARDUINO_SENSOR_HOST', '');
+            $localHost = Env::get('ARDUINO_SERVICE_HOST', '127.0.0.1');
+            $localPort = Env::get('ARDUINO_SERVICE_PORT', '5001');
+            
+            // Try local first, fall back to ngrok if local unreachable
+            if ($this->canReachLocal($localHost, $localPort)) {
+                $serviceUrl = "http://{$localHost}:{$localPort}";
+            } elseif (!empty($ngrokHost)) {
+                // Use ngrok tunnel (for InfinityFree)
+                $protocol = Env::get('ARDUINO_SENSOR_PROTOCOL', 'https');
+                $port = Env::get('ARDUINO_SENSOR_PORT', '443');
+                $serviceUrl = "{$protocol}://{$ngrokHost}";
+                if ($port != '443' && $port != '80') {
+                    $serviceUrl .= ":{$port}";
+                }
+                $this->useNgrok = true;
+                $this->ngrokHeaders = ['ngrok-skip-browser-warning: true'];
+            } else {
+                // Fallback to local even if unreachable
+                $serviceUrl = "http://{$localHost}:{$localPort}";
+            }
         }
         
         $this->serviceUrl = rtrim($serviceUrl, '/');
         $this->timeout = $timeout;
         $this->connectTimeout = $connectTimeout;
+    }
+
+    /**
+     * Check if local Arduino bridge is reachable
+     */
+    private function canReachLocal($host, $port)
+    {
+        $socket = @fsockopen($host, $port, $errno, $errstr, 1);
+        if ($socket) {
+            fclose($socket);
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -498,7 +531,7 @@ class ArduinoBridge
         $url = $this->serviceUrl . $endpoint;
         
         $ch = curl_init();
-        curl_setopt_array($ch, [
+        $options = [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_TIMEOUT => $this->timeout,
@@ -506,7 +539,14 @@ class ArduinoBridge
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_SSL_VERIFYPEER => false,
             CURLOPT_USERAGENT => 'IoT Farm Monitor/1.0'
-        ]);
+        ];
+        
+        // Add ngrok headers if using ngrok tunnel
+        if ($this->useNgrok && !empty($this->ngrokHeaders)) {
+            $options[CURLOPT_HTTPHEADER] = $this->ngrokHeaders;
+        }
+        
+        curl_setopt_array($ch, $options);
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -527,5 +567,21 @@ class ArduinoBridge
         }
         
         return $decoded;
+    }
+
+    /**
+     * Check if using ngrok tunnel
+     */
+    public function isUsingNgrok()
+    {
+        return $this->useNgrok;
+    }
+
+    /**
+     * Get the service URL being used
+     */
+    public function getServiceUrl()
+    {
+        return $this->serviceUrl;
     }
 }
