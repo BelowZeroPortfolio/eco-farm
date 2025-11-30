@@ -222,6 +222,101 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
 
 <div class="p-4 max-w-7xl mx-auto">
 
+    <!-- Arduino Service Status -->
+    <div class="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-3 mb-3">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
+                    <i class="fas fa-microchip text-blue-600 dark:text-blue-400"></i>
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">Arduino Sensor Service</span>
+                </div>
+                <span id="arduino-status-indicator" class="px-3 py-1 text-xs font-medium rounded-full <?php echo $arduinoHealthy ? 'bg-green-600 text-white' : 'bg-gray-400 text-white'; ?>">
+                    <?php if ($arduinoHealthy): ?>
+                        <i class="fas fa-check-circle mr-1"></i>ONLINE
+                    <?php else: ?>
+                        <i class="fas fa-spinner fa-spin mr-1"></i>CHECKING...
+                    <?php endif; ?>
+                </span>
+            </div>
+            <button onclick="refreshArduinoStatus()" class="px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition-colors">
+                <i class="fas fa-sync-alt mr-1"></i>Refresh
+            </button>
+        </div>
+        
+        <!-- Status Details Card -->
+        <div id="arduino-status-card" class="mt-3 <?php echo $arduinoHealthy ? '' : 'hidden'; ?>">
+            <?php if ($arduinoHealthy && $arduinoData): ?>
+            <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                        <i class="fas fa-check-circle text-green-600 dark:text-green-400 text-lg"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="font-medium text-gray-900 dark:text-white text-sm">Service Running</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">Arduino sensor bridge is online and collecting data</div>
+                    </div>
+                    <div class="flex gap-4 text-xs">
+                        <?php if (isset($arduinoData['temperature'])): ?>
+                        <div class="text-center">
+                            <div class="text-gray-500 dark:text-gray-400">Temp</div>
+                            <div class="font-bold text-gray-900 dark:text-white"><?php echo number_format($arduinoData['temperature']['value'] ?? 0, 1); ?>°C</div>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (isset($arduinoData['humidity'])): ?>
+                        <div class="text-center">
+                            <div class="text-gray-500 dark:text-gray-400">Humidity</div>
+                            <div class="font-bold text-gray-900 dark:text-white"><?php echo number_format($arduinoData['humidity']['value'] ?? 0, 1); ?>%</div>
+                        </div>
+                        <?php endif; ?>
+                        <?php if (isset($arduinoData['soil_moisture'])): ?>
+                        <div class="text-center">
+                            <div class="text-gray-500 dark:text-gray-400">Soil</div>
+                            <div class="font-bold text-gray-900 dark:text-white"><?php echo number_format($arduinoData['soil_moisture']['value'] ?? 0, 1); ?>%</div>
+                        </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
+        </div>
+        
+        <!-- Offline Card -->
+        <div id="arduino-offline-card" class="mt-3 <?php echo $arduinoHealthy ? 'hidden' : ''; ?>">
+            <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
+                        <i class="fas fa-exclamation-triangle text-red-600 dark:text-red-400 text-lg"></i>
+                    </div>
+                    <div class="flex-1">
+                        <div class="font-medium text-gray-900 dark:text-white text-sm">Service Offline</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">Arduino sensor bridge is not running or unreachable</div>
+                    </div>
+                </div>
+                <div class="mt-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded p-2">
+                    <p class="text-xs text-yellow-800 dark:text-yellow-200">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        Start the Arduino bridge by running <code class="bg-yellow-100 dark:bg-yellow-900/50 px-1 rounded">START_MONITORING.bat</code> or <code class="bg-yellow-100 dark:bg-yellow-900/50 px-1 rounded">START_MONITORING_WITH_NGROK.bat</code> on your PC.
+                    </p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Error Card -->
+        <div id="arduino-error-card" class="mt-3 hidden">
+            <div class="bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg p-3">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 bg-gray-100 dark:bg-gray-600 rounded-full flex items-center justify-center">
+                        <i class="fas fa-question-circle text-gray-500 dark:text-gray-400 text-lg"></i>
+                    </div>
+                    <div>
+                        <div class="font-medium text-gray-900 dark:text-white text-sm">Status Unknown</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-400">Unable to check Arduino service status</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Compact Statistics -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-2 mb-3">
         <?php 
@@ -1337,6 +1432,139 @@ async function resetViolations() {
 }
 
 <?php endif; ?>
+
+/**
+ * Arduino Service Status Functions
+ */
+let arduinoStatusCheckInterval = null;
+
+async function checkArduinoStatus() {
+    const indicator = document.getElementById('arduino-status-indicator');
+    const statusCard = document.getElementById('arduino-status-card');
+    const offlineCard = document.getElementById('arduino-offline-card');
+    const errorCard = document.getElementById('arduino-error-card');
+    
+    if (!indicator) return;
+    
+    // Show checking state
+    indicator.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>CHECKING...';
+    indicator.className = 'px-3 py-1 bg-gray-400 text-white text-xs font-medium rounded-full';
+    
+    try {
+        // Use the ngrok endpoint to check Arduino service
+        const response = await fetch('api/get_sensor_data_ngrok.php', {
+            method: 'GET',
+            headers: {'Accept': 'application/json'}
+        });
+        
+        const data = await response.json();
+        
+        if (data.success && data.data) {
+            // Service is online
+            indicator.innerHTML = '<i class="fas fa-check-circle mr-1"></i>ONLINE';
+            indicator.className = 'px-3 py-1 bg-green-600 text-white text-xs font-medium rounded-full';
+            
+            // Show status card, hide offline/error cards
+            statusCard.classList.remove('hidden');
+            offlineCard.classList.add('hidden');
+            errorCard.classList.add('hidden');
+            
+            // Update status card with live data
+            updateArduinoStatusCard(data.data);
+            
+        } else {
+            // Service is offline
+            indicator.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>OFFLINE';
+            indicator.className = 'px-3 py-1 bg-red-600 text-white text-xs font-medium rounded-full';
+            
+            // Show offline card, hide status/error cards
+            statusCard.classList.add('hidden');
+            offlineCard.classList.remove('hidden');
+            errorCard.classList.add('hidden');
+        }
+    } catch (error) {
+        console.error('Error checking Arduino status:', error);
+        
+        // Show error state
+        indicator.innerHTML = '<i class="fas fa-question-circle mr-1"></i>ERROR';
+        indicator.className = 'px-3 py-1 bg-gray-600 text-white text-xs font-medium rounded-full';
+        
+        // Show error card, hide status/offline cards
+        statusCard.classList.add('hidden');
+        offlineCard.classList.add('hidden');
+        errorCard.classList.remove('hidden');
+    }
+}
+
+function updateArduinoStatusCard(sensorData) {
+    const statusCard = document.getElementById('arduino-status-card');
+    if (!statusCard) return;
+    
+    let sensorHtml = '';
+    if (sensorData.temperature) {
+        const tempValue = sensorData.temperature.value ?? sensorData.temperature;
+        sensorHtml += `
+            <div class="text-center">
+                <div class="text-gray-500 dark:text-gray-400">Temp</div>
+                <div class="font-bold text-gray-900 dark:text-white">${parseFloat(tempValue || 0).toFixed(1)}°C</div>
+            </div>
+        `;
+    }
+    if (sensorData.humidity) {
+        const humValue = sensorData.humidity.value ?? sensorData.humidity;
+        sensorHtml += `
+            <div class="text-center">
+                <div class="text-gray-500 dark:text-gray-400">Humidity</div>
+                <div class="font-bold text-gray-900 dark:text-white">${parseFloat(humValue || 0).toFixed(1)}%</div>
+            </div>
+        `;
+    }
+    if (sensorData.soil_moisture) {
+        const soilValue = sensorData.soil_moisture.value ?? sensorData.soil_moisture;
+        sensorHtml += `
+            <div class="text-center">
+                <div class="text-gray-500 dark:text-gray-400">Soil</div>
+                <div class="font-bold text-gray-900 dark:text-white">${parseFloat(soilValue || 0).toFixed(1)}%</div>
+            </div>
+        `;
+    }
+    
+    statusCard.innerHTML = `
+        <div class="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg p-3">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
+                    <i class="fas fa-check-circle text-green-600 dark:text-green-400 text-lg"></i>
+                </div>
+                <div class="flex-1">
+                    <div class="font-medium text-gray-900 dark:text-white text-sm">Service Running</div>
+                    <div class="text-xs text-gray-600 dark:text-gray-400">Arduino sensor bridge is online and collecting data</div>
+                </div>
+                ${sensorHtml ? `<div class="flex gap-4 text-xs">${sensorHtml}</div>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+function refreshArduinoStatus() {
+    showNotification('Refreshing Arduino service status...', 'info');
+    checkArduinoStatus();
+}
+
+// Check Arduino status on page load and periodically
+document.addEventListener('DOMContentLoaded', function() {
+    // Initial check after a short delay
+    setTimeout(checkArduinoStatus, 1000);
+    
+    // Check every 30 seconds
+    arduinoStatusCheckInterval = setInterval(checkArduinoStatus, 30000);
+});
+
+// Cleanup on page unload
+window.addEventListener('beforeunload', function() {
+    if (arduinoStatusCheckInterval) {
+        clearInterval(arduinoStatusCheckInterval);
+    }
+});
 </script>
 
 <?php
