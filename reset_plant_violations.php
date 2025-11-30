@@ -19,7 +19,7 @@ try {
     $pdo = getDatabaseConnection();
     
     // Get active plant ID
-    $stmt = $pdo->query("SELECT SelectedPlantID FROM ActivePlant LIMIT 1");
+    $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant LIMIT 1");
     $result = $stmt->fetch();
     
     if (!$result) {
@@ -32,13 +32,13 @@ try {
     // Insert a dummy reading with 0 violations to reset the counter
     // This simulates all sensors being within thresholds
     $stmt = $pdo->prepare("
-        INSERT INTO SensorReadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel)
+        INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel)
         SELECT ?, 
                (MinSoilMoisture + MaxSoilMoisture) / 2,
                (MinTemperature + MaxTemperature) / 2,
                (MinHumidity + MaxHumidity) / 2,
                0
-        FROM Plants
+        FROM plants
         WHERE PlantID = ?
     ");
     

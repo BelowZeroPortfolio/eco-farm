@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         switch ($action) {
             case 'add_plant':
                 $stmt = $pdo->prepare("
-                    INSERT INTO Plants 
+                    INSERT INTO plants 
                     (PlantName, LocalName, MinSoilMoisture, MaxSoilMoisture, MinTemperature, MaxTemperature, 
                      MinHumidity, MaxHumidity, WarningTrigger, SuggestedAction)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -61,7 +61,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
             case 'update_plant':
                 $stmt = $pdo->prepare("
-                    UPDATE Plants 
+                    UPDATE plants 
                     SET PlantName = ?, LocalName = ?, MinSoilMoisture = ?, MaxSoilMoisture = ?,
                         MinTemperature = ?, MaxTemperature = ?, MinHumidity = ?, MaxHumidity = ?,
                         WarningTrigger = ?, SuggestedAction = ?
@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 break;
                 
             case 'delete_plant':
-                $stmt = $pdo->prepare("DELETE FROM Plants WHERE PlantID = ?");
+                $stmt = $pdo->prepare("DELETE FROM plants WHERE PlantID = ?");
                 $result = $stmt->execute([$_POST['id']]);
                 
                 echo json_encode(['success' => $result, 'message' => 'Plant deleted successfully']);
@@ -93,8 +93,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
             case 'set_active':
                 // Update active plant
-                $pdo->exec("DELETE FROM ActivePlant");
-                $stmt = $pdo->prepare("INSERT INTO ActivePlant (SelectedPlantID) VALUES (?)");
+                $pdo->exec("DELETE FROM activeplant");
+                $stmt = $pdo->prepare("INSERT INTO activeplant (SelectedPlantID) VALUES (?)");
                 $result = $stmt->execute([$_POST['id']]);
                 
                 echo json_encode(['success' => $result, 'message' => 'Active plant updated successfully']);
@@ -113,7 +113,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $search = $_GET['search'] ?? '';
 
 $pdo = getDatabaseConnection();
-$query = "SELECT * FROM Plants WHERE 1=1";
+$query = "SELECT * FROM plants WHERE 1=1";
 $params = [];
 
 if ($search) {
@@ -129,12 +129,12 @@ $stmt->execute($params);
 $plants = $stmt->fetchAll();
 
 // Get active plant
-$stmt = $pdo->query("SELECT SelectedPlantID FROM ActivePlant LIMIT 1");
+$stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant LIMIT 1");
 $activePlant = $stmt->fetch();
 $activePlantID = $activePlant ? $activePlant['SelectedPlantID'] : null;
 
 // Get statistics
-$stats_stmt = $pdo->query("SELECT COUNT(*) as total FROM Plants");
+$stats_stmt = $pdo->query("SELECT COUNT(*) as total FROM plants");
 $stats = $stats_stmt->fetch();
 
 $pageTitle = 'Plant Database - IoT Farm Monitoring System';

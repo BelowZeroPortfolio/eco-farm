@@ -15,6 +15,9 @@ if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
 
 require_once 'config/database.php';
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
 $currentUser = [
     'id' => $_SESSION['user_id'],
     'username' => $_SESSION['username'],

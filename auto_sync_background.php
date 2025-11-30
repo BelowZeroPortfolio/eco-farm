@@ -71,7 +71,7 @@ try {
     // Check if enough time has passed since last reading
     $stmt = $pdo->prepare("
         SELECT ReadingTime, WarningLevel
-        FROM SensorReadings 
+        FROM sensorreadings 
         WHERE PlantID = ? 
         ORDER BY ReadingTime DESC 
         LIMIT 1

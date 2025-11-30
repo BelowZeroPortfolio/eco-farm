@@ -10,6 +10,9 @@
 // Start session
 session_start();
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
 // Simple authentication check
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
     header('Location: login.php');

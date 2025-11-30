@@ -10,6 +10,9 @@ require_once 'config/database.php';
 // Start session
 session_start();
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
 // Simple authentication check
 if (!isset($_SESSION['user_id']) || !isset($_SESSION['username'])) {
     header('Location: login.php');
@@ -55,7 +58,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     try {
                         $pdo = getDatabaseConnection();
                         $stmt = $pdo->prepare("
-                            UPDATE Notifications 
+                            UPDATE notifications 
                             SET IsRead = 1, ReadAt = NOW() 
                             WHERE NotificationID = ?
                         ");
@@ -88,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 
                 // Mark all plant alerts as read
                 $stmt = $pdo->prepare("
-                    UPDATE Notifications 
+                    UPDATE notifications 
                     SET IsRead = 1, ReadAt = NOW() 
                     WHERE IsRead = 0
                 ");
@@ -113,7 +116,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $pestCount = $stmt->rowCount();
                 
                 // Delete all plant alerts
-                $stmt = $pdo->prepare("DELETE FROM Notifications");
+                $stmt = $pdo->prepare("DELETE FROM notifications");
                 $stmt->execute();
                 $plantCount = $stmt->rowCount();
                 

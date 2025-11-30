@@ -15,6 +15,9 @@ require_once 'config/database.php';
 require_once 'includes/language.php';
 require_once 'includes/arduino-api.php';
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
 $currentUser = [
     'id' => $_SESSION['user_id'],
     'username' => $_SESSION['username'],
@@ -228,8 +231,8 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
             $pdo = getDatabaseConnection();
             $stmt = $pdo->query("
                 SELECT p.* 
-                FROM Plants p
-                INNER JOIN ActivePlant ap ON p.PlantID = ap.SelectedPlantID
+                FROM plants p
+                INNER JOIN activeplant ap ON p.PlantID = ap.SelectedPlantID
                 LIMIT 1
             ");
             $activePlantThresholds = $stmt->fetch();
@@ -313,11 +316,11 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
         $pdo = getDatabaseConnection();
         
         // Get all plants
-        $plantsStmt = $pdo->query("SELECT PlantID, PlantName, LocalName FROM Plants ORDER BY PlantName");
+        $plantsStmt = $pdo->query("SELECT PlantID, PlantName, LocalName FROM plants ORDER BY PlantName");
         $plants = $plantsStmt->fetchAll();
         
         // Get active plant
-        $activeStmt = $pdo->query("SELECT SelectedPlantID FROM ActivePlant LIMIT 1");
+        $activeStmt = $pdo->query("SELECT SelectedPlantID FROM activeplant LIMIT 1");
         $activeResult = $activeStmt->fetch();
         $activePlantID = $activeResult ? $activeResult['SelectedPlantID'] : null;
     } catch (Exception $e) {
@@ -374,7 +377,7 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
                     try {
                         $stmt = $pdo->prepare("
                             SELECT WarningLevel 
-                            FROM SensorReadings 
+                            FROM sensorreadings 
                             WHERE PlantID = ? 
                             ORDER BY ReadingTime DESC 
                             LIMIT 1
@@ -391,7 +394,7 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
                         <i class="fas fa-exclamation-triangle mr-1"></i>Violations: <span id="violation-count"><?php echo $violationCount; ?></span> / <?php 
                         // Get warning trigger for active plant
                         try {
-                            $stmt = $pdo->prepare("SELECT WarningTrigger FROM Plants WHERE PlantID = ?");
+                            $stmt = $pdo->prepare("SELECT WarningTrigger FROM plants WHERE PlantID = ?");
                             $stmt->execute([$activePlantID]);
                             $plantData = $stmt->fetch();
                             echo $plantData ? $plantData['WarningTrigger'] : 5;

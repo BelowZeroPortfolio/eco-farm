@@ -24,8 +24,8 @@ class PlantMonitor {
     private function loadActivePlant() {
         $stmt = $this->pdo->query("
             SELECT p.* 
-            FROM Plants p
-            INNER JOIN ActivePlant ap ON p.PlantID = ap.SelectedPlantID
+            FROM plants p
+            INNER JOIN activeplant ap ON p.PlantID = ap.SelectedPlantID
             LIMIT 1
         ");
         $this->activePlant = $stmt->fetch();
@@ -156,7 +156,7 @@ class PlantMonitor {
             // Get the most recent reading
             $stmt = $this->pdo->prepare("
                 SELECT WarningLevel 
-                FROM SensorReadings 
+                FROM sensorreadings 
                 WHERE PlantID = ? 
                 ORDER BY ReadingTime DESC 
                 LIMIT 1
@@ -180,7 +180,7 @@ class PlantMonitor {
      */
     private function saveSensorReading($plantID, $soilMoisture, $temperature, $humidity, $warningLevel) {
         $stmt = $this->pdo->prepare("
-            INSERT INTO SensorReadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel)
+            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel)
             VALUES (?, ?, ?, ?, ?)
         ");
         $stmt->execute([$plantID, $soilMoisture, $temperature, $humidity, $warningLevel]);
@@ -203,7 +203,7 @@ class PlantMonitor {
         $sensorType = strtolower(str_replace(' ', '_', $violation['sensor']));
         
         $stmt = $this->pdo->prepare("
-            INSERT INTO Notifications 
+            INSERT INTO notifications 
             (PlantID, Message, SensorType, Level, SuggestedAction, CurrentValue, RequiredRange, Status)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ");
@@ -226,8 +226,8 @@ class PlantMonitor {
     public function getNotifications($limit = 10, $unreadOnly = false) {
         $sql = "
             SELECT n.*, p.PlantName, p.LocalName
-            FROM Notifications n
-            INNER JOIN Plants p ON n.PlantID = p.PlantID
+            FROM notifications n
+            INNER JOIN plants p ON n.PlantID = p.PlantID
         ";
         
         if ($unreadOnly) {
@@ -259,8 +259,8 @@ class PlantMonitor {
     public function getNotificationJSON($notificationID) {
         $stmt = $this->pdo->prepare("
             SELECT n.*, p.PlantName, p.LocalName
-            FROM Notifications n
-            INNER JOIN Plants p ON n.PlantID = p.PlantID
+            FROM notifications n
+            INNER JOIN plants p ON n.PlantID = p.PlantID
             WHERE n.NotificationID = ?
         ");
         $stmt->execute([$notificationID]);
@@ -289,8 +289,8 @@ class PlantMonitor {
     public function getLatestReadings($limit = 20) {
         $stmt = $this->pdo->prepare("
             SELECT sr.*, p.PlantName, p.LocalName
-            FROM SensorReadings sr
-            INNER JOIN Plants p ON sr.PlantID = p.PlantID
+            FROM sensorreadings sr
+            INNER JOIN plants p ON sr.PlantID = p.PlantID
             ORDER BY sr.ReadingTime DESC
             LIMIT ?
         ");
@@ -310,7 +310,7 @@ class PlantMonitor {
                 MIN(Temperature) as min_temp,
                 MAX(Temperature) as max_temp,
                 COUNT(*) as reading_count
-            FROM SensorReadings
+            FROM sensorreadings
             WHERE ReadingTime >= DATE_SUB(NOW(), INTERVAL ? HOUR)
         ");
         $stmt->execute([$hours]);

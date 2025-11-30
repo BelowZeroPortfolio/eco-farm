@@ -14,6 +14,18 @@ require_once 'includes/weather-api.php';
 require_once 'includes/arduino-api.php';
 require_once 'includes/pest-config-helper.php';
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
+// Get sensor logging interval from settings for chart refresh
+$arduinoForInterval = new ArduinoBridge();
+$intervalSetting = $arduinoForInterval->getLoggingIntervalSetting();
+$chartRefreshIntervalMs = ($intervalSetting['interval_minutes'] ?? 0.0833) * 60 * 1000; // Convert minutes to milliseconds
+// Minimum 5 seconds (5000ms) for chart refresh
+if ($chartRefreshIntervalMs < 5000) {
+    $chartRefreshIntervalMs = 5000;
+}
+
 $currentUser = [
     'id' => $_SESSION['user_id'],
     'username' => $_SESSION['username'],
@@ -543,27 +555,82 @@ include 'includes/navigation.php';
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <!-- Left Column -->
         <div class="lg:col-span-2 space-y-4">
-            <!-- Sensor Analytics -->
+            <!-- Sensor Analytics - Improved -->
             <div class="bg-gray-900 dark:bg-white border border-gray-800 dark:border-gray-200 rounded-xl p-4">
-                <div class="flex items-center justify-between mb-3">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-2">
                     <div class="flex items-center gap-2">
-                        <h3 class="text-sm font-semibold text-white dark:text-gray-900" data-translate="sensor_data">Arduino Analytics</h3>
+                        <h3 class="text-sm font-semibold text-white dark:text-gray-900">Sensor Data</h3>
                         <span id="arduino-chart-status" class="w-2 h-2 bg-gray-400 rounded-full" title="Arduino Status"></span>
                     </div>
-                    <select id="sensor-type-select" class="bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-900 text-xs border border-gray-700 dark:border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-500">
-                        <option value="temperature" data-translate="temperature">Temperature</option>
-                        <option value="humidity" data-translate="humidity">Humidity</option>
-                        <option value="soil_moisture" data-translate="soil_moisture">Soil Moisture</option>
-                    </select>
-                </div>
-                <div class="flex items-end justify-between h-24 mb-3" id="chart-container">
-                    <!-- Chart will be populated by JavaScript -->
-                </div>
-                <div class="flex items-center justify-between text-xs text-gray-300 dark:text-gray-600">
-                    <span id="chart-label">Temperature (°C)</span>
                     <div class="flex items-center gap-2">
+                        <select id="sensor-type-select" class="bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-900 text-xs border border-gray-700 dark:border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-green-500">
+                            <option value="temperature">🌡️ Temperature</option>
+                            <option value="humidity">💧 Humidity</option>
+                            <option value="soil_moisture">🌱 Soil Moisture</option>
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Current Value Display -->
+                <div class="flex items-center justify-between mb-3">
+                    <div class="flex items-center gap-3">
+                        <span id="current-value-display" class="text-3xl font-bold text-white dark:text-gray-900">--</span>
+                        <div class="flex flex-col">
+                            <span id="trend-indicator" class="text-xs text-gray-400 dark:text-gray-500">--</span>
+                            <span id="status-badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-700 dark:bg-gray-200 text-gray-300 dark:text-gray-600">Loading...</span>
+                        </div>
+                    </div>
+                    <div class="text-right text-xs text-gray-400 dark:text-gray-500">
+                        <div>Min: <span id="stat-min" class="text-blue-400 dark:text-blue-600 font-medium">--</span></div>
+                        <div>Max: <span id="stat-max" class="text-red-400 dark:text-red-600 font-medium">--</span></div>
+                        <div>Avg: <span id="stat-avg" class="text-green-400 dark:text-green-600 font-medium">--</span></div>
+                    </div>
+                </div>
+                
+                <!-- Chart Area with Y-axis labels -->
+                <div class="flex gap-2">
+                    <!-- Y-axis labels -->
+                    <div class="flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400 py-1" style="width: 30px;">
+                        <span id="y-max">100</span>
+                        <span id="y-mid">50</span>
+                        <span id="y-min">0</span>
+                    </div>
+                    <!-- Chart container -->
+                    <div class="flex-1 relative" style="height: 120px;">
+                        <!-- Threshold lines -->
+                        <div id="threshold-max-line" class="absolute w-full border-t border-dashed border-red-500/50 z-10" style="top: 20%;"></div>
+                        <div id="threshold-min-line" class="absolute w-full border-t border-dashed border-blue-500/50 z-10" style="top: 80%;"></div>
+                        <!-- Chart bars -->
+                        <div class="flex items-end justify-between h-full gap-1" id="chart-container">
+                            <!-- Chart will be populated by JavaScript -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- X-axis time labels -->
+                <div class="flex gap-2 mt-1">
+                    <div style="width: 30px;"></div>
+                    <div class="flex-1 flex justify-between text-xs text-gray-500 dark:text-gray-400" id="time-labels-container">
+                        <!-- Time labels will be populated by JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Footer with legend -->
+                <div class="flex items-center justify-between mt-3 pt-2 border-t border-gray-700 dark:border-gray-200">
+                    <div class="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
+                        <div class="flex items-center gap-1">
+                            <span class="w-3 h-0.5 bg-red-500/50"></span>
+                            <span>Max threshold</span>
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span class="w-3 h-0.5 bg-blue-500/50"></span>
+                            <span>Min threshold</span>
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs">
                         <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                        <span>Live Data</span>
+                        <span class="text-gray-400 dark:text-gray-500">Live Data</span>
                     </div>
                 </div>
             </div>
@@ -593,7 +660,9 @@ include 'includes/navigation.php';
                             todayDark: '#ef4444'
                         },
                         label: 'Temperature (°C)',
-                        currentValue: <?php echo $tempVal; ?>
+                        currentValue: <?php echo $tempVal; ?>,
+                        thresholdMin: <?php echo $tempReading['threshold_min'] ?? 20; ?>,
+                        thresholdMax: <?php echo $tempReading['threshold_max'] ?? 28; ?>
                     },
                     humidity: {
                         data: [
@@ -617,7 +686,9 @@ include 'includes/navigation.php';
                             todayDark: '#3b82f6'
                         },
                         label: 'Humidity (%)',
-                        currentValue: <?php echo $humVal; ?>
+                        currentValue: <?php echo $humVal; ?>,
+                        thresholdMin: <?php echo $humReading['threshold_min'] ?? 60; ?>,
+                        thresholdMax: <?php echo $humReading['threshold_max'] ?? 80; ?>
                     },
                     soil_moisture: {
                         data: [
@@ -641,11 +712,13 @@ include 'includes/navigation.php';
                             todayDark: '#10b981'
                         },
                         label: 'Soil Moisture (%)',
-                        currentValue: <?php echo $soilVal; ?>
+                        currentValue: <?php echo $soilVal; ?>,
+                        thresholdMin: <?php echo $soilReading['threshold_min'] ?? 40; ?>,
+                        thresholdMax: <?php echo $soilReading['threshold_max'] ?? 60; ?>
                     }
                 };
 
-                // Fetch real Arduino data
+                // Fetch real Arduino data (live current value only)
                 function fetchArduinoData() {
                     const statusIndicator = document.getElementById('arduino-chart-status');
 
@@ -657,24 +730,20 @@ include 'includes/navigation.php';
                                 statusIndicator.className = 'w-2 h-2 bg-green-500 rounded-full animate-pulse';
                                 statusIndicator.title = 'Arduino Connected - Live Data';
 
-                                // Update current values
+                                // Update current values only (last bar = "Now")
                                 if (data.data.temperature && data.data.temperature.value !== null) {
                                     sensorData.temperature.currentValue = parseFloat(data.data.temperature.value);
-                                    // Add to data array and shift old values
-                                    sensorData.temperature.data.push(sensorData.temperature.currentValue);
-                                    sensorData.temperature.data.shift();
+                                    sensorData.temperature.data[6] = sensorData.temperature.currentValue; // Update "Now" bar
                                 }
 
                                 if (data.data.humidity && data.data.humidity.value !== null) {
                                     sensorData.humidity.currentValue = parseFloat(data.data.humidity.value);
-                                    sensorData.humidity.data.push(sensorData.humidity.currentValue);
-                                    sensorData.humidity.data.shift();
+                                    sensorData.humidity.data[6] = sensorData.humidity.currentValue; // Update "Now" bar
                                 }
 
                                 if (data.data.soil_moisture && data.data.soil_moisture.value !== null) {
                                     sensorData.soil_moisture.currentValue = parseFloat(data.data.soil_moisture.value);
-                                    sensorData.soil_moisture.data.push(sensorData.soil_moisture.currentValue);
-                                    sensorData.soil_moisture.data.shift();
+                                    sensorData.soil_moisture.data[6] = sensorData.soil_moisture.currentValue; // Update "Now" bar
                                 }
 
                                 // Update the current chart
@@ -716,88 +785,243 @@ include 'includes/navigation.php';
                     updateChart(currentSensorType);
                 }
 
-                const days = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+                // Generate time labels based on interval
+                function generateTimeLabels(intervalMins, count) {
+                    const labels = [];
+                    for (let i = count - 1; i >= 0; i--) {
+                        if (i === 0) {
+                            labels.push('Now');
+                        } else {
+                            const totalMins = intervalMins * i;
+                            if (totalMins < 1) {
+                                labels.push(Math.round(totalMins * 60) + 's');
+                            } else if (totalMins < 60) {
+                                labels.push(Math.round(totalMins) + 'm');
+                            } else {
+                                const hours = totalMins / 60;
+                                labels.push(hours % 1 === 0 ? hours + 'h' : hours.toFixed(1) + 'h');
+                            }
+                        }
+                    }
+                    return labels;
+                }
 
                 function updateChart(sensorType) {
                     const data = sensorData[sensorType];
                     const chartContainer = document.getElementById('chart-container');
-                    const chartLabel = document.getElementById('chart-label');
+                    const timeLabelsContainer = document.getElementById('time-labels-container');
+                    
+                    // Get UI elements
+                    const currentValueDisplay = document.getElementById('current-value-display');
+                    const trendIndicator = document.getElementById('trend-indicator');
+                    const statusBadge = document.getElementById('status-badge');
+                    const statMin = document.getElementById('stat-min');
+                    const statMax = document.getElementById('stat-max');
+                    const statAvg = document.getElementById('stat-avg');
+                    const yMax = document.getElementById('y-max');
+                    const yMid = document.getElementById('y-mid');
+                    const yMin = document.getElementById('y-min');
+                    const thresholdMaxLine = document.getElementById('threshold-max-line');
+                    const thresholdMinLine = document.getElementById('threshold-min-line');
 
-                    // Filter out zero values for better scaling
+                    // Calculate statistics
                     const nonZeroData = data.data.filter(val => val > 0);
-                    const maxValue = nonZeroData.length > 0 ? Math.max(...nonZeroData) : Math.max(...data.data);
-                    const minValue = nonZeroData.length > 0 ? Math.min(...nonZeroData) : Math.min(...data.data);
-
-                    // Use reasonable ranges if all data is zero
-                    const range = maxValue - minValue || 10;
-                    const adjustedMax = maxValue + (range * 0.1);
-                    const adjustedMin = Math.max(0, minValue - (range * 0.1));
-
-                    // Update label with current value
+                    const dataMin = nonZeroData.length > 0 ? Math.min(...nonZeroData) : 0;
+                    const dataMax = nonZeroData.length > 0 ? Math.max(...nonZeroData) : 0;
+                    const dataAvg = nonZeroData.length > 0 ? nonZeroData.reduce((a, b) => a + b, 0) / nonZeroData.length : 0;
                     const currentVal = data.currentValue || data.data[data.data.length - 1] || 0;
-                    chartLabel.innerHTML = `${data.label} <span class="font-bold text-${data.colors.normal.replace('#', '')}">${currentVal.toFixed(1)}${data.unit}</span>`;
+                    
+                    // Calculate trend (compare current to average of previous readings)
+                    const prevAvg = data.data.slice(0, -1).filter(v => v > 0);
+                    const prevAvgVal = prevAvg.length > 0 ? prevAvg.reduce((a, b) => a + b, 0) / prevAvg.length : currentVal;
+                    const trendDiff = currentVal - prevAvgVal;
+                    
+                    // Update current value display
+                    currentValueDisplay.textContent = currentVal.toFixed(1) + data.unit;
+                    
+                    // Update trend indicator
+                    if (Math.abs(trendDiff) < 0.5) {
+                        trendIndicator.innerHTML = '<i class="fas fa-minus text-gray-400"></i> Stable';
+                        trendIndicator.className = 'text-xs text-gray-400 dark:text-gray-500';
+                    } else if (trendDiff > 0) {
+                        trendIndicator.innerHTML = '<i class="fas fa-arrow-up text-red-400"></i> +' + trendDiff.toFixed(1);
+                        trendIndicator.className = 'text-xs text-red-400';
+                    } else {
+                        trendIndicator.innerHTML = '<i class="fas fa-arrow-down text-blue-400"></i> ' + trendDiff.toFixed(1);
+                        trendIndicator.className = 'text-xs text-blue-400';
+                    }
+                    
+                    // Update status badge based on thresholds
+                    const threshMin = data.thresholdMin || 0;
+                    const threshMax = data.thresholdMax || 100;
+                    if (currentVal >= threshMin && currentVal <= threshMax) {
+                        statusBadge.textContent = '✓ Optimal';
+                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400';
+                    } else if (currentVal < threshMin - 10 || currentVal > threshMax + 10) {
+                        statusBadge.textContent = '⚠ Critical';
+                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400';
+                    } else {
+                        statusBadge.textContent = '! Warning';
+                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400';
+                    }
+                    
+                    // Update statistics
+                    statMin.textContent = dataMin.toFixed(1) + data.unit;
+                    statMax.textContent = dataMax.toFixed(1) + data.unit;
+                    statAvg.textContent = dataAvg.toFixed(1) + data.unit;
+                    
+                    // Calculate scale for chart
+                    let scaleMin, scaleMax;
+                    if (sensorType === 'temperature') {
+                        scaleMin = Math.floor(Math.min(dataMin, threshMin) - 5);
+                        scaleMax = Math.ceil(Math.max(dataMax, threshMax) + 5);
+                    } else {
+                        scaleMin = 0;
+                        scaleMax = 100;
+                    }
+                    
+                    // Update Y-axis labels
+                    yMax.textContent = scaleMax;
+                    yMid.textContent = Math.round((scaleMax + scaleMin) / 2);
+                    yMin.textContent = scaleMin;
+                    
+                    // Position threshold lines
+                    const threshMaxPercent = ((scaleMax - threshMax) / (scaleMax - scaleMin)) * 100;
+                    const threshMinPercent = ((scaleMax - threshMin) / (scaleMax - scaleMin)) * 100;
+                    thresholdMaxLine.style.top = threshMaxPercent + '%';
+                    thresholdMinLine.style.top = threshMinPercent + '%';
 
                     // Clear existing chart
                     chartContainer.innerHTML = '';
+                    timeLabelsContainer.innerHTML = '';
 
-                    // Create new chart bars with time-based labels
-                    const timeLabels = ['6h', '5h', '4h', '3h', '2h', '1h', 'Now'];
-
+                    // Generate time labels
+                    const intervalMinutes = <?php echo $intervalSetting['interval_minutes'] ?? 30; ?>;
+                    const timeLabels = generateTimeLabels(intervalMinutes, 7);
+                    
+                    const containerHeight = 120; // pixels
+                    
+                    // Create bars
                     data.data.forEach((value, index) => {
-                        const height = value > 0 ? ((value - adjustedMin) / (adjustedMax - adjustedMin)) * 100 : 5;
-                        const normalizedHeight = Math.max(height, 5);
                         const isNow = index === 6;
-
-                        const barContainer = document.createElement('div');
-                        barContainer.className = 'flex flex-col items-center flex-1';
-
-                        const bar = document.createElement('div');
-                        bar.className = 'w-4 rounded-t mb-1 hover:opacity-80 transition-all cursor-pointer';
-                        bar.style.height = normalizedHeight + '%';
-
-                        // Set color based on theme and current status
-                        const isDarkMode = document.documentElement.classList.contains('dark');
-                        if (isDarkMode) {
-                            bar.style.backgroundColor = isNow ? data.colors.todayDark : data.colors.normalDark;
+                        const hasData = value > 0;
+                        
+                        // Calculate bar height
+                        let pixelHeight;
+                        if (hasData) {
+                            const heightPercent = ((value - scaleMin) / (scaleMax - scaleMin)) * 100;
+                            const normalizedPercent = Math.max(Math.min(heightPercent, 100), 8);
+                            pixelHeight = (normalizedPercent / 100) * containerHeight;
                         } else {
-                            bar.style.backgroundColor = isNow ? data.colors.today : data.colors.normal;
+                            pixelHeight = 8; // Minimal height for "no data" indicator
                         }
 
-                        // Enhanced tooltip with status
-                        const status = value > 0 ? 'Live' : 'No Data';
-                        bar.title = `${timeLabels[index]}: ${value > 0 ? value.toFixed(1) : '--'}${data.unit} (${status})`;
+                        // Bar container
+                        const barContainer = document.createElement('div');
+                        barContainer.className = 'flex flex-col items-center justify-end flex-1 relative group';
+                        barContainer.style.height = '100%';
 
-                        const dayLabel = document.createElement('span');
-                        dayLabel.className = 'text-xs text-gray-300 dark:text-gray-600';
-                        dayLabel.textContent = timeLabels[index];
+                        // Value label on hover
+                        const valueLabel = document.createElement('div');
+                        valueLabel.className = 'absolute -top-6 left-1/2 transform -translate-x-1/2 bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-800 text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-20';
+                        valueLabel.textContent = hasData ? value.toFixed(1) + data.unit : 'No Data';
 
+                        // Bar
+                        const bar = document.createElement('div');
+                        bar.className = 'w-6 rounded-t transition-all cursor-pointer hover:opacity-80';
+                        bar.style.height = pixelHeight + 'px';
+                        
+                        // Color based on value vs thresholds (or gray for no data)
+                        let barColor;
+                        if (!hasData) {
+                            barColor = '#4b5563'; // Gray for no data
+                        } else if (value >= threshMin && value <= threshMax) {
+                            barColor = isNow ? data.colors.today : data.colors.normal;
+                        } else if (value < threshMin - 10 || value > threshMax + 10) {
+                            barColor = '#ef4444'; // Red for critical
+                        } else {
+                            barColor = '#f59e0b'; // Yellow for warning
+                        }
+                        bar.style.backgroundColor = barColor;
+                        
+                        if (isNow && hasData) {
+                            bar.style.boxShadow = '0 0 8px ' + barColor;
+                        }
+
+                        barContainer.appendChild(valueLabel);
                         barContainer.appendChild(bar);
-                        barContainer.appendChild(dayLabel);
                         chartContainer.appendChild(barContainer);
+                        
+                        // Time label
+                        const timeLabel = document.createElement('span');
+                        timeLabel.className = isNow ? 'font-bold text-green-400' : (hasData ? '' : 'text-gray-600');
+                        timeLabel.textContent = timeLabels[index];
+                        timeLabelsContainer.appendChild(timeLabel);
                     });
+                }
+
+                // Fetch historical data from database - get last 6 readings for chart
+                function fetchHistoricalData() {
+                    const intervalMinutes = <?php echo $intervalSetting['interval_minutes'] ?? 30; ?>;
+                    // Calculate hours needed for 7 data points (with some buffer)
+                    const hoursNeeded = Math.max(Math.ceil((intervalMinutes * 7) / 60), 1);
+                    
+                    fetch(`arduino_sync.php?action=get_historical&hours=${hoursNeeded}`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success && data.data) {
+                                // Process historical data for each sensor type
+                                ['temperature', 'humidity', 'soil_moisture'].forEach(type => {
+                                    if (data.data[type] && data.data[type].length > 0) {
+                                        const readings = data.data[type];
+                                        // Get the last 6 readings (most recent first after reverse)
+                                        const recentReadings = readings.slice(-6);
+                                        
+                                        // Fill slots 0-5 with historical data (oldest to newest)
+                                        for (let i = 0; i < 6; i++) {
+                                            if (recentReadings[i]) {
+                                                sensorData[type].data[i] = parseFloat(recentReadings[i].value);
+                                            }
+                                            // Keep existing value if no reading (don't set to 0)
+                                        }
+                                        // Slot 6 is "Now" - updated by fetchArduinoData
+                                    }
+                                });
+                                
+                                // Update chart after loading historical data
+                                const currentSensorType = document.getElementById('sensor-type-select').value;
+                                updateChart(currentSensorType);
+                            }
+                        })
+                        .catch(error => {
+                            console.log('Historical data fetch failed:', error);
+                        });
                 }
 
                 // Initialize chart with real Arduino data
                 document.addEventListener('DOMContentLoaded', function() {
-                    // Initialize with some baseline data
-                    Object.keys(sensorData).forEach(type => {
-                        // Fill with current value or reasonable defaults
-                        const defaultValue = type === 'temperature' ? 24 : type === 'humidity' ? 65 : 45;
-                        sensorData[type].data = Array(7).fill(defaultValue);
-                    });
-
+                    // Data is already initialized from PHP with current values
+                    // Just update the chart
                     updateChart('temperature');
 
-                    // Fetch initial Arduino data
+                    // Fetch current live Arduino data first (for "Now" bar)
                     fetchArduinoData();
+                    
+                    // Then fetch historical data from database
+                    fetchHistoricalData();
 
                     // Add event listener for dropdown
                     document.getElementById('sensor-type-select').addEventListener('change', function() {
                         updateChart(this.value);
                     });
 
-                    // Auto-update every 5 seconds
-                    setInterval(fetchArduinoData, 5000);
+                    // Auto-update based on sensor logging interval from settings
+                    const chartRefreshInterval = <?php echo $chartRefreshIntervalMs; ?>; // milliseconds
+                    console.log('Chart refresh interval:', chartRefreshInterval, 'ms');
+                    setInterval(fetchArduinoData, chartRefreshInterval);
+                    
+                    // Also refresh historical data periodically (every interval)
+                    setInterval(fetchHistoricalData, chartRefreshInterval);
                 });
             </script>
 

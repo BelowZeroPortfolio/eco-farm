@@ -148,8 +148,8 @@ function getPlantAlertNotifications($limit = null)
                 n.CreatedAt,
                 p.PlantName,
                 p.LocalName
-            FROM Notifications n
-            INNER JOIN Plants p ON n.PlantID = p.PlantID
+            FROM notifications n
+            INNER JOIN plants p ON n.PlantID = p.PlantID
             ORDER BY n.CreatedAt DESC
         ";
 

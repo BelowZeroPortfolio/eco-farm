@@ -88,11 +88,43 @@ try {
                 throw new Exception('Notification ID is required');
             }
             
+            $pdo = getDatabaseConnection();
+            
             // For pest alerts
             if (strpos($notificationId, 'pest_') === 0) {
                 $alertId = intval(str_replace('pest_', '', $notificationId));
                 
-                $pdo = getDatabaseConnection();
+                $stmt = $pdo->prepare("
+                    UPDATE pest_alerts 
+                    SET is_read = TRUE, read_at = NOW(), read_by = ? 
+                    WHERE id = ?
+                ");
+                $stmt->execute([$_SESSION['user_id'], $alertId]);
+            }
+            // For plant notifications
+            elseif (strpos($notificationId, 'plant_') === 0) {
+                $alertId = intval(str_replace('plant_', '', $notificationId));
+                
+                $stmt = $pdo->prepare("
+                    UPDATE notifications 
+                    SET IsRead = 1, ReadAt = NOW() 
+                    WHERE NotificationID = ?
+                ");
+                $stmt->execute([$alertId]);
+            }
+            // Try both tables if no prefix
+            else {
+                $alertId = intval($notificationId);
+                
+                // Try notifications table first
+                $stmt = $pdo->prepare("
+                    UPDATE notifications 
+                    SET IsRead = 1, ReadAt = NOW() 
+                    WHERE NotificationID = ?
+                ");
+                $stmt->execute([$alertId]);
+                
+                // Also try pest_alerts
                 $stmt = $pdo->prepare("
                     UPDATE pest_alerts 
                     SET is_read = TRUE, read_at = NOW(), read_by = ? 
@@ -108,21 +140,32 @@ try {
             break;
             
         case 'mark_all_as_read':
-            // Mark all notifications as read
+            // Mark all notifications as read (both pest_alerts and plant notifications)
             $pdo = getDatabaseConnection();
+            $totalCount = 0;
+            
+            // Mark pest_alerts as read
             $stmt = $pdo->prepare("
                 UPDATE pest_alerts 
                 SET is_read = TRUE, read_at = NOW(), read_by = ? 
                 WHERE is_read = FALSE
             ");
             $stmt->execute([$_SESSION['user_id']]);
+            $totalCount += $stmt->rowCount();
             
-            $count = $stmt->rowCount();
+            // Mark plant notifications as read (from notifications table)
+            $stmt = $pdo->prepare("
+                UPDATE notifications 
+                SET IsRead = 1, ReadAt = NOW() 
+                WHERE IsRead = 0
+            ");
+            $stmt->execute();
+            $totalCount += $stmt->rowCount();
             
             echo json_encode([
                 'success' => true,
-                'message' => "{$count} notifications marked as read",
-                'count' => $count
+                'message' => "{$totalCount} notifications marked as read",
+                'count' => $totalCount
             ]);
             break;
             
