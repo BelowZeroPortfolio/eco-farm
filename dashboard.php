@@ -639,83 +639,56 @@ include 'includes/navigation.php';
                 // Real-time Arduino sensor data with initial values from PHP
                 const sensorData = {
                     temperature: {
-                        data: [
-                            <?php
-                            $tempReading = null;
-                            foreach ($sensorReadings as $r) {
-                                if ($r['sensor_type'] === 'temperature') {
-                                    $tempReading = $r;
-                                    break;
-                                }
-                            }
-                            // Use null if no valid data (Arduino offline)
-                            $tempVal = ($tempReading && $tempReading['avg_value'] > 0) ? $tempReading['avg_value'] : 'null';
-                            echo implode(', ', array_fill(0, 7, $tempVal));
-                            ?>
-                        ],
+                        data: [null, null, null, null, null, null, null],
+                        timeLabels: ['--', '--', '--', '--', '--', '--', 'Now'],
                         unit: '°C',
                         colors: {
                             normal: '#ef4444',
-                            today: '#dc2626',
-                            normalDark: '#f87171',
-                            todayDark: '#ef4444'
+                            today: '#dc2626'
                         },
-                        label: 'Temperature (°C)',
-                        currentValue: <?php echo $tempVal; ?>,
+                        currentValue: <?php 
+                            $tempReading = null;
+                            foreach ($sensorReadings as $r) {
+                                if ($r['sensor_type'] === 'temperature') { $tempReading = $r; break; }
+                            }
+                            echo ($tempReading && $tempReading['avg_value'] > 0) ? $tempReading['avg_value'] : 'null';
+                        ?>,
                         thresholdMin: <?php echo $tempReading['threshold_min'] ?? 20; ?>,
                         thresholdMax: <?php echo $tempReading['threshold_max'] ?? 28; ?>
                     },
                     humidity: {
-                        data: [
-                            <?php
-                            $humReading = null;
-                            foreach ($sensorReadings as $r) {
-                                if ($r['sensor_type'] === 'humidity') {
-                                    $humReading = $r;
-                                    break;
-                                }
-                            }
-                            // Use null if no valid data (Arduino offline)
-                            $humVal = ($humReading && $humReading['avg_value'] > 0) ? $humReading['avg_value'] : 'null';
-                            echo implode(', ', array_fill(0, 7, $humVal));
-                            ?>
-                        ],
+                        data: [null, null, null, null, null, null, null],
+                        timeLabels: ['--', '--', '--', '--', '--', '--', 'Now'],
                         unit: '%',
                         colors: {
                             normal: '#3b82f6',
-                            today: '#2563eb',
-                            normalDark: '#60a5fa',
-                            todayDark: '#3b82f6'
+                            today: '#2563eb'
                         },
-                        label: 'Humidity (%)',
-                        currentValue: <?php echo $humVal; ?>,
+                        currentValue: <?php 
+                            $humReading = null;
+                            foreach ($sensorReadings as $r) {
+                                if ($r['sensor_type'] === 'humidity') { $humReading = $r; break; }
+                            }
+                            echo ($humReading && $humReading['avg_value'] > 0) ? $humReading['avg_value'] : 'null';
+                        ?>,
                         thresholdMin: <?php echo $humReading['threshold_min'] ?? 60; ?>,
                         thresholdMax: <?php echo $humReading['threshold_max'] ?? 80; ?>
                     },
                     soil_moisture: {
-                        data: [
-                            <?php
-                            $soilReading = null;
-                            foreach ($sensorReadings as $r) {
-                                if ($r['sensor_type'] === 'soil_moisture') {
-                                    $soilReading = $r;
-                                    break;
-                                }
-                            }
-                            // Use null if no valid data (Arduino offline)
-                            $soilVal = ($soilReading && $soilReading['avg_value'] > 0) ? $soilReading['avg_value'] : 'null';
-                            echo implode(', ', array_fill(0, 7, $soilVal));
-                            ?>
-                        ],
+                        data: [null, null, null, null, null, null, null],
+                        timeLabels: ['--', '--', '--', '--', '--', '--', 'Now'],
                         unit: '%',
                         colors: {
                             normal: '#10b981',
-                            today: '#059669',
-                            normalDark: '#34d399',
-                            todayDark: '#10b981'
+                            today: '#059669'
                         },
-                        label: 'Soil Moisture (%)',
-                        currentValue: <?php echo $soilVal; ?>,
+                        currentValue: <?php 
+                            $soilReading = null;
+                            foreach ($sensorReadings as $r) {
+                                if ($r['sensor_type'] === 'soil_moisture') { $soilReading = $r; break; }
+                            }
+                            echo ($soilReading && $soilReading['avg_value'] > 0) ? $soilReading['avg_value'] : 'null';
+                        ?>,
                         thresholdMin: <?php echo $soilReading['threshold_min'] ?? 40; ?>,
                         thresholdMax: <?php echo $soilReading['threshold_max'] ?? 60; ?>
                     }
@@ -785,26 +758,7 @@ include 'includes/navigation.php';
                     updateChart(currentSensorType);
                 }
 
-                // Generate time labels based on interval
-                function generateTimeLabels(intervalMins, count) {
-                    const labels = [];
-                    for (let i = count - 1; i >= 0; i--) {
-                        if (i === 0) {
-                            labels.push('Now');
-                        } else {
-                            const totalMins = intervalMins * i;
-                            if (totalMins < 1) {
-                                labels.push(Math.round(totalMins * 60) + 's');
-                            } else if (totalMins < 60) {
-                                labels.push(Math.round(totalMins) + 'm');
-                            } else {
-                                const hours = totalMins / 60;
-                                labels.push(hours % 1 === 0 ? hours + 'h' : hours.toFixed(1) + 'h');
-                            }
-                        }
-                    }
-                    return labels;
-                }
+                // Time labels are now fetched from database with actual timestamps
 
                 function updateChart(sensorType) {
                     const data = sensorData[sensorType];
@@ -913,9 +867,8 @@ include 'includes/navigation.php';
                     chartContainer.innerHTML = '';
                     timeLabelsContainer.innerHTML = '';
 
-                    // Generate time labels
-                    const intervalMinutes = <?php echo $intervalSetting['interval_minutes'] ?? 30; ?>;
-                    const timeLabels = generateTimeLabels(intervalMinutes, 7);
+                    // Use time labels from data (actual logged times)
+                    const timeLabels = data.timeLabels;
                     
                     const containerHeight = 120; // pixels
                     
@@ -978,43 +931,36 @@ include 'includes/navigation.php';
                     });
                 }
 
-                // Fetch historical data from database - get last 6 readings for chart
+                // Fetch historical data from database - get last 6 readings with timestamps
                 function fetchHistoricalData() {
-                    const intervalMinutes = <?php echo $intervalSetting['interval_minutes'] ?? 30; ?>;
-                    // Calculate hours needed for 7 data points (with some buffer)
-                    const hoursNeeded = Math.max(Math.ceil((intervalMinutes * 7) / 60), 1);
-                    
-                    fetch(`arduino_sync.php?action=get_historical&hours=${hoursNeeded}`)
+                    fetch('arduino_sync.php?action=get_historical')
                         .then(response => response.json())
                         .then(data => {
                             if (data.success && data.data) {
-                                // Process historical data for each sensor type
                                 ['temperature', 'humidity', 'soil_moisture'].forEach(type => {
-                                    // Reset slots 0-5 to null (no data)
+                                    // Reset slots 0-5
                                     for (let i = 0; i < 6; i++) {
                                         sensorData[type].data[i] = null;
+                                        sensorData[type].timeLabels[i] = '--';
                                     }
                                     
                                     if (data.data[type] && data.data[type].length > 0) {
                                         const readings = data.data[type];
-                                        // Data comes oldest to newest from server
-                                        // Fill from the end so newest is closest to "Now"
-                                        const startSlot = Math.max(0, 6 - readings.length);
+                                        // Fill slots with data and time labels
                                         for (let i = 0; i < readings.length && i < 6; i++) {
-                                            sensorData[type].data[startSlot + i] = parseFloat(readings[i].value);
+                                            sensorData[type].data[i] = parseFloat(readings[i].value);
+                                            sensorData[type].timeLabels[i] = readings[i].time_label || '--';
                                         }
                                     }
-                                    // Slot 6 is "Now" - updated by fetchArduinoData
+                                    // Slot 6 is always "Now"
+                                    sensorData[type].timeLabels[6] = 'Now';
                                 });
                                 
-                                // Update chart after loading historical data
                                 const currentSensorType = document.getElementById('sensor-type-select').value;
                                 updateChart(currentSensorType);
                             }
                         })
-                        .catch(error => {
-                            console.log('Historical data fetch failed:', error);
-                        });
+                        .catch(error => console.log('Historical data fetch failed:', error));
                 }
 
                 // Initialize chart with real Arduino data
