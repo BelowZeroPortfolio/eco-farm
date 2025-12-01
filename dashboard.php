@@ -112,40 +112,40 @@ function getCurrentSensorReadings()
         return $readings;
     } catch (Exception $e) {
         error_log("Error getting sensor readings: " . $e->getMessage());
-        // Return fallback data
+        // Return offline data (no simulated values)
         return [
             [
                 'sensor_type' => 'temperature',
-                'avg_value' => 24.5,
+                'avg_value' => 0,
                 'unit' => '°C',
-                'status' => 'simulated',
-                'remark' => 'Using simulated data - Arduino not connected',
+                'status' => 'offline',
+                'remark' => 'Arduino not connected - No data available',
                 'threshold_min' => 20,
                 'threshold_max' => 28,
-                'weekly_data' => [22.1, 23.8, 24.2, 25.1, 24.8, 23.9, 24.5],
-                'trend' => 'up'
+                'weekly_data' => [0],
+                'trend' => 'stable'
             ],
             [
                 'sensor_type' => 'humidity',
-                'avg_value' => 68.2,
+                'avg_value' => 0,
                 'unit' => '%',
-                'status' => 'simulated',
-                'remark' => 'Using simulated data - Arduino not connected',
+                'status' => 'offline',
+                'remark' => 'Arduino not connected - No data available',
                 'threshold_min' => 60,
                 'threshold_max' => 80,
-                'weekly_data' => [65.2, 67.1, 69.8, 68.5, 67.9, 68.8, 68.2],
+                'weekly_data' => [0],
                 'trend' => 'stable'
             ],
             [
                 'sensor_type' => 'soil_moisture',
-                'avg_value' => 45.8,
+                'avg_value' => 0,
                 'unit' => '%',
-                'status' => 'simulated',
-                'remark' => 'Using simulated data - Arduino not connected',
+                'status' => 'offline',
+                'remark' => 'Arduino not connected - No data available',
                 'threshold_min' => 40,
                 'threshold_max' => 60,
-                'weekly_data' => [48.2, 47.1, 46.5, 45.2, 44.8, 45.5, 45.8],
-                'trend' => 'down'
+                'weekly_data' => [0],
+                'trend' => 'stable'
             ]
         ];
     }
@@ -648,7 +648,8 @@ include 'includes/navigation.php';
                                     break;
                                 }
                             }
-                            $tempVal = $tempReading ? $tempReading['avg_value'] : 24.5;
+                            // Use null if no valid data (Arduino offline)
+                            $tempVal = ($tempReading && $tempReading['avg_value'] > 0) ? $tempReading['avg_value'] : 'null';
                             echo implode(', ', array_fill(0, 7, $tempVal));
                             ?>
                         ],
@@ -674,7 +675,8 @@ include 'includes/navigation.php';
                                     break;
                                 }
                             }
-                            $humVal = $humReading ? $humReading['avg_value'] : 68.0;
+                            // Use null if no valid data (Arduino offline)
+                            $humVal = ($humReading && $humReading['avg_value'] > 0) ? $humReading['avg_value'] : 'null';
                             echo implode(', ', array_fill(0, 7, $humVal));
                             ?>
                         ],
@@ -700,7 +702,8 @@ include 'includes/navigation.php';
                                     break;
                                 }
                             }
-                            $soilVal = $soilReading ? $soilReading['avg_value'] : 46.0;
+                            // Use null if no valid data (Arduino offline)
+                            $soilVal = ($soilReading && $soilReading['avg_value'] > 0) ? $soilReading['avg_value'] : 'null';
                             echo implode(', ', array_fill(0, 7, $soilVal));
                             ?>
                         ],
@@ -753,32 +756,29 @@ include 'includes/navigation.php';
                                 // Arduino service not responding properly
                                 statusIndicator.className = 'w-2 h-2 bg-yellow-500 rounded-full';
                                 statusIndicator.title = 'Arduino Service Issues';
-                                simulateData();
+                                handleOfflineState();
                             }
                         })
                         .catch(error => {
                             console.log('Arduino data fetch failed:', error);
                             // Update status indicator - Arduino disconnected
                             statusIndicator.className = 'w-2 h-2 bg-red-500 rounded-full';
-                            statusIndicator.title = 'Arduino Disconnected - Using Simulated Data';
-                            // Use simulated data as fallback
-                            simulateData();
+                            statusIndicator.title = 'Arduino Disconnected - Offline';
+                            // Show offline state instead of simulated data
+                            handleOfflineState();
                         });
                 }
 
-                // Simulate data when Arduino is not available
-                function simulateData() {
-                    const now = new Date();
-                    const variation = Math.sin(now.getTime() / 10000) * 2; // Smooth variation
+                // Handle offline state when Arduino is not available (no fake data)
+                function handleOfflineState() {
+                    // Set all values to null to indicate offline
+                    sensorData.temperature.currentValue = null;
+                    sensorData.humidity.currentValue = null;
+                    sensorData.soil_moisture.currentValue = null;
 
-                    sensorData.temperature.currentValue = 24.5 + variation;
-                    sensorData.humidity.currentValue = 68.0 + variation;
-                    sensorData.soil_moisture.currentValue = 46.0 + variation;
-
-                    // Add to arrays
+                    // Clear data arrays (set to null for "no data" display)
                     Object.keys(sensorData).forEach(type => {
-                        sensorData[type].data.push(sensorData[type].currentValue);
-                        sensorData[type].data.shift();
+                        sensorData[type].data = [null, null, null, null, null, null, null];
                     });
 
                     const currentSensorType = document.getElementById('sensor-type-select').value;
@@ -824,51 +824,69 @@ include 'includes/navigation.php';
                     const thresholdMaxLine = document.getElementById('threshold-max-line');
                     const thresholdMinLine = document.getElementById('threshold-min-line');
 
-                    // Calculate statistics
-                    const nonZeroData = data.data.filter(val => val > 0);
-                    const dataMin = nonZeroData.length > 0 ? Math.min(...nonZeroData) : 0;
-                    const dataMax = nonZeroData.length > 0 ? Math.max(...nonZeroData) : 0;
-                    const dataAvg = nonZeroData.length > 0 ? nonZeroData.reduce((a, b) => a + b, 0) / nonZeroData.length : 0;
-                    const currentVal = data.currentValue || data.data[data.data.length - 1] || 0;
-                    
-                    // Calculate trend (compare current to average of previous readings)
-                    const prevAvg = data.data.slice(0, -1).filter(v => v > 0);
-                    const prevAvgVal = prevAvg.length > 0 ? prevAvg.reduce((a, b) => a + b, 0) / prevAvg.length : currentVal;
-                    const trendDiff = currentVal - prevAvgVal;
-                    
-                    // Update current value display
-                    currentValueDisplay.textContent = currentVal.toFixed(1) + data.unit;
-                    
-                    // Update trend indicator
-                    if (Math.abs(trendDiff) < 0.5) {
-                        trendIndicator.innerHTML = '<i class="fas fa-minus text-gray-400"></i> Stable';
-                        trendIndicator.className = 'text-xs text-gray-400 dark:text-gray-500';
-                    } else if (trendDiff > 0) {
-                        trendIndicator.innerHTML = '<i class="fas fa-arrow-up text-red-400"></i> +' + trendDiff.toFixed(1);
-                        trendIndicator.className = 'text-xs text-red-400';
-                    } else {
-                        trendIndicator.innerHTML = '<i class="fas fa-arrow-down text-blue-400"></i> ' + trendDiff.toFixed(1);
-                        trendIndicator.className = 'text-xs text-blue-400';
-                    }
-                    
-                    // Update status badge based on thresholds
+                    // Get threshold values first (needed for calculations)
                     const threshMin = data.thresholdMin || 0;
                     const threshMax = data.thresholdMax || 100;
-                    if (currentVal >= threshMin && currentVal <= threshMax) {
-                        statusBadge.textContent = '✓ Optimal';
-                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400';
-                    } else if (currentVal < threshMin - 10 || currentVal > threshMax + 10) {
-                        statusBadge.textContent = '⚠ Critical';
-                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400';
-                    } else {
-                        statusBadge.textContent = '! Warning';
-                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400';
-                    }
+
+                    // Calculate statistics (filter out null and zero values)
+                    const validData = data.data.filter(val => val !== null && val > 0);
+                    const dataMin = validData.length > 0 ? Math.min(...validData) : null;
+                    const dataMax = validData.length > 0 ? Math.max(...validData) : null;
+                    const dataAvg = validData.length > 0 ? validData.reduce((a, b) => a + b, 0) / validData.length : null;
+                    const currentVal = data.currentValue;
+                    const isOffline = currentVal === null || currentVal === undefined;
                     
-                    // Update statistics
-                    statMin.textContent = dataMin.toFixed(1) + data.unit;
-                    statMax.textContent = dataMax.toFixed(1) + data.unit;
-                    statAvg.textContent = dataAvg.toFixed(1) + data.unit;
+                    // Update display based on online/offline state
+                    if (isOffline) {
+                        // Offline state - show dashes
+                        currentValueDisplay.textContent = '--';
+                        currentValueDisplay.classList.add('text-gray-500');
+                        trendIndicator.innerHTML = '<i class="fas fa-plug text-gray-400"></i> No connection';
+                        trendIndicator.className = 'text-xs text-gray-400 dark:text-gray-500';
+                        statusBadge.textContent = '⚠ Offline';
+                        statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-500/20 text-gray-400';
+                        statMin.textContent = '--';
+                        statMax.textContent = '--';
+                        statAvg.textContent = '--';
+                    } else {
+                        // Online state - show actual values
+                        currentValueDisplay.textContent = currentVal.toFixed(1) + data.unit;
+                        currentValueDisplay.classList.remove('text-gray-500');
+                        
+                        // Calculate trend (compare current to average of previous readings)
+                        const prevAvg = data.data.slice(0, -1).filter(v => v !== null && v > 0);
+                        const prevAvgVal = prevAvg.length > 0 ? prevAvg.reduce((a, b) => a + b, 0) / prevAvg.length : currentVal;
+                        const trendDiff = currentVal - prevAvgVal;
+                        
+                        // Update trend indicator
+                        if (Math.abs(trendDiff) < 0.5) {
+                            trendIndicator.innerHTML = '<i class="fas fa-minus text-gray-400"></i> Stable';
+                            trendIndicator.className = 'text-xs text-gray-400 dark:text-gray-500';
+                        } else if (trendDiff > 0) {
+                            trendIndicator.innerHTML = '<i class="fas fa-arrow-up text-red-400"></i> +' + trendDiff.toFixed(1);
+                            trendIndicator.className = 'text-xs text-red-400';
+                        } else {
+                            trendIndicator.innerHTML = '<i class="fas fa-arrow-down text-blue-400"></i> ' + trendDiff.toFixed(1);
+                            trendIndicator.className = 'text-xs text-blue-400';
+                        }
+                        
+                        // Update status badge based on thresholds
+                        if (currentVal >= threshMin && currentVal <= threshMax) {
+                            statusBadge.textContent = '✓ Optimal';
+                            statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-green-500/20 text-green-400';
+                        } else if (currentVal < threshMin - 10 || currentVal > threshMax + 10) {
+                            statusBadge.textContent = '⚠ Critical';
+                            statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-red-500/20 text-red-400';
+                        } else {
+                            statusBadge.textContent = '! Warning';
+                            statusBadge.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-500/20 text-yellow-400';
+                        }
+                        
+                        // Update statistics
+                        statMin.textContent = dataMin !== null ? dataMin.toFixed(1) + data.unit : '--';
+                        statMax.textContent = dataMax !== null ? dataMax.toFixed(1) + data.unit : '--';
+                        statAvg.textContent = dataAvg !== null ? dataAvg.toFixed(1) + data.unit : '--';
+                    }
                     
                     // Calculate scale for chart
                     let scaleMin, scaleMax;
@@ -904,7 +922,7 @@ include 'includes/navigation.php';
                     // Create bars
                     data.data.forEach((value, index) => {
                         const isNow = index === 6;
-                        const hasData = value > 0;
+                        const hasData = value !== null && value > 0;
                         
                         // Calculate bar height
                         let pixelHeight;
@@ -972,20 +990,21 @@ include 'includes/navigation.php';
                             if (data.success && data.data) {
                                 // Process historical data for each sensor type
                                 ['temperature', 'humidity', 'soil_moisture'].forEach(type => {
+                                    // Reset slots 0-5 to null (no data)
+                                    for (let i = 0; i < 6; i++) {
+                                        sensorData[type].data[i] = null;
+                                    }
+                                    
                                     if (data.data[type] && data.data[type].length > 0) {
                                         const readings = data.data[type];
-                                        // Get the last 6 readings (most recent first after reverse)
-                                        const recentReadings = readings.slice(-6);
-                                        
-                                        // Fill slots 0-5 with historical data (oldest to newest)
-                                        for (let i = 0; i < 6; i++) {
-                                            if (recentReadings[i]) {
-                                                sensorData[type].data[i] = parseFloat(recentReadings[i].value);
-                                            }
-                                            // Keep existing value if no reading (don't set to 0)
+                                        // Data comes oldest to newest from server
+                                        // Fill from the end so newest is closest to "Now"
+                                        const startSlot = Math.max(0, 6 - readings.length);
+                                        for (let i = 0; i < readings.length && i < 6; i++) {
+                                            sensorData[type].data[startSlot + i] = parseFloat(readings[i].value);
                                         }
-                                        // Slot 6 is "Now" - updated by fetchArduinoData
                                     }
+                                    // Slot 6 is "Now" - updated by fetchArduinoData
                                 });
                                 
                                 // Update chart after loading historical data
@@ -1135,11 +1154,16 @@ include 'includes/navigation.php';
             <div class="bg-green-600 text-white rounded-xl p-4">
                 <h3 class="text-white/80 text-xs font-medium mb-2" data-translate="weekly_average_conditions">Weekly Average Conditions</h3>
                 <div class="text-center">
-                    <div class="text-2xl font-bold mb-1"><?php echo $sensorReadings[0]['avg_value']; ?>°C</div>
+                    <?php 
+                    $tempAvg = isset($sensorReadings[0]) && $sensorReadings[0]['avg_value'] > 0 ? $sensorReadings[0]['avg_value'] : null;
+                    $humAvg = isset($sensorReadings[1]) && $sensorReadings[1]['avg_value'] > 0 ? $sensorReadings[1]['avg_value'] : null;
+                    $soilAvg = isset($sensorReadings[2]) && $sensorReadings[2]['avg_value'] > 0 ? $sensorReadings[2]['avg_value'] : null;
+                    ?>
+                    <div class="text-2xl font-bold mb-1"><?php echo $tempAvg !== null ? number_format($tempAvg, 1) . '°C' : '--'; ?></div>
                     <div class="text-white/80 text-xs mb-2" data-translate="temperature">Temperature</div>
                     <div class="grid grid-cols-2 gap-2 text-xs">
-                        <div><span data-translate="humidity">Humidity</span>: <?php echo $sensorReadings[1]['avg_value']; ?>%</div>
-                        <div>Soil: <?php echo $sensorReadings[2]['avg_value']; ?>%</div>
+                        <div><span data-translate="humidity">Humidity</span>: <?php echo $humAvg !== null ? number_format($humAvg, 1) . '%' : '--'; ?></div>
+                        <div>Soil: <?php echo $soilAvg !== null ? number_format($soilAvg, 1) . '%' : '--'; ?></div>
                     </div>
                 </div>
             </div>

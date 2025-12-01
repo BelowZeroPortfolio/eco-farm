@@ -67,6 +67,20 @@ try {
         throw new Exception('Failed to get sensor ID');
     }
     
+    // Check if enough time has passed since last reading (respects interval setting)
+    if (!shouldLogReading($pdo, $sensorId)) {
+        // Return success but indicate skipped (interval not reached)
+        echo json_encode([
+            'success' => true,
+            'message' => 'Skipped - logging interval not reached',
+            'sensor_type' => $sensorType,
+            'value' => $value,
+            'skipped' => true,
+            'timestamp' => date('Y-m-d H:i:s')
+        ]);
+        exit;
+    }
+    
     // Insert reading
     $stmt = $pdo->prepare("
         INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) 
@@ -98,6 +112,49 @@ try {
     echo json_encode([
         'error' => 'Database error: ' . $e->getMessage()
     ]);
+}
+
+/**
+ * Check if enough time has passed to log a new reading based on interval setting
+ */
+function shouldLogReading($pdo, $sensorId)
+{
+    try {
+        // Get logging interval from settings (in minutes)
+        $stmt = $pdo->prepare("
+            SELECT setting_value 
+            FROM user_settings 
+            WHERE setting_key = 'sensor_logging_interval' 
+            LIMIT 1
+        ");
+        $stmt->execute();
+        $result = $stmt->fetch();
+        $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
+        
+        // Get seconds since last reading using MySQL's time functions
+        $stmt = $pdo->prepare("
+            SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed
+            FROM sensor_readings 
+            WHERE sensor_id = ?
+        ");
+        $stmt->execute([$sensorId]);
+        $result = $stmt->fetch();
+        
+        // If no previous reading, allow logging
+        if (!$result || $result['seconds_passed'] === null) {
+            return true;
+        }
+        
+        $secondsPassed = intval($result['seconds_passed']);
+        $intervalSeconds = $intervalMinutes * 60;
+        
+        // Allow logging if interval has passed (with 1 second tolerance)
+        return $secondsPassed >= ($intervalSeconds - 1);
+        
+    } catch (Exception $e) {
+        error_log("Interval check error: " . $e->getMessage());
+        return true; // Default to allowing on error
+    }
 }
 
 /**

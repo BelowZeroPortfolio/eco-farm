@@ -47,8 +47,12 @@ echo [2/3] Starting ngrok Tunnel for Arduino...
 start "ngrok Tunnel - Arduino" cmd /k "ngrok http 5001"
 timeout /t 3 /nobreak >nul
 
-echo [3/3] Starting Local Database Sync...
+echo [3/4] Starting Local Database Sync...
 start "Local Sensor Sync" cmd /k "php local_sensor_sync.php"
+timeout /t 2 /nobreak >nul
+
+echo [4/4] Starting Online Sync to InfinityFree...
+start "Online Sync - InfinityFree" cmd /k "php sync_sensors_online.php"
 timeout /t 2 /nobreak >nul
 
 echo.
@@ -58,6 +62,7 @@ echo ============================================================
 echo   Arduino Bridge:  http://127.0.0.1:5001/data
 echo   ngrok Tunnel:    Check ngrok window for public URL
 echo   Local Sync:      Saving readings to local database
+echo   Online Sync:     Uploading to InfinityFree database
 echo   Website:         https://sagayecofarm.infinityfreeapp.com
 echo ============================================================
 echo.

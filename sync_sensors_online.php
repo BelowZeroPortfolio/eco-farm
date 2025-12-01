@@ -219,7 +219,12 @@ function main() {
     
     while (true) {
         $syncCount++;
-        colorLog("=== Sync #{$syncCount} ===", 'info');
+        
+        // Re-read interval from database on each loop (in case it changed)
+        $loggingInterval = getLoggingInterval();
+        $intervalDisplay = $loggingInterval >= 60 ? round($loggingInterval / 60) . ' minute(s)' : $loggingInterval . ' second(s)';
+        
+        colorLog("=== Sync #{$syncCount} (interval: {$intervalDisplay}) ===", 'info');
         
         syncSensorData();
         

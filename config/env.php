@@ -49,7 +49,7 @@ class Env
             'YOLO_SERVICE_PROTOCOL' => 'https',  // Use HTTPS through tunnel
             
             // Arduino Sensor Configuration
-            'ARDUINO_SENSOR_HOST' => 'fredda-unprecisive-unashamedly.ngrok-free.dev',  // Your Arduino ngrok tunnel
+            'ARDUINO_SENSOR_HOST' => 'inflexible-napoleon-salpingian.ngrok-free.dev',  // Your Arduino ngrok tunnel
             'ARDUINO_SENSOR_PORT' => '443',  // HTTPS port
             'ARDUINO_SENSOR_PROTOCOL' => 'https',  // Use HTTPS through tunnel
             

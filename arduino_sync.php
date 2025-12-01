@@ -203,41 +203,87 @@ function getSensorThresholds() {
 
 /**
  * Get historical sensor data for dashboard analytics
+ * Returns readings for the last 6 time slots based on the logging interval
+ * Compatible with MySQL 5.7 (InfinityFree)
  */
 function getHistoricalSensorData($hours = 6) {
     try {
         $pdo = getDatabaseConnection();
         
+        // Get logging interval from settings (in minutes)
+        $intervalStmt = $pdo->prepare("
+            SELECT setting_value 
+            FROM user_settings 
+            WHERE setting_key = 'sensor_logging_interval' 
+            LIMIT 1
+        ");
+        $intervalStmt->execute();
+        $intervalResult = $intervalStmt->fetch();
+        $intervalMinutes = $intervalResult ? floatval($intervalResult['setting_value']) : 30;
+        $intervalSeconds = $intervalMinutes * 60;
+        
+        // Calculate time window for 6 historical slots
+        $totalSecondsNeeded = $intervalSeconds * 6;
+        
+        // Get readings within the time window (MySQL 5.7 compatible)
         $stmt = $pdo->prepare("
             SELECT 
                 s.sensor_type,
                 sr.value,
                 sr.unit,
-                sr.recorded_at
+                sr.recorded_at,
+                TIMESTAMPDIFF(SECOND, sr.recorded_at, NOW()) as seconds_ago
             FROM sensors s
             JOIN sensor_readings sr ON s.id = sr.sensor_id
             WHERE s.sensor_name LIKE 'Arduino%'
-            AND sr.recorded_at >= DATE_SUB(NOW(), INTERVAL ? HOUR)
-            ORDER BY s.sensor_type, sr.recorded_at ASC
+            AND sr.recorded_at >= DATE_SUB(NOW(), INTERVAL ? SECOND)
+            ORDER BY s.sensor_type, sr.recorded_at DESC
         ");
-        $stmt->execute([$hours]);
+        $stmt->execute([$totalSecondsNeeded + $intervalSeconds]);
         $results = $stmt->fetchAll();
         
-        // Group by sensor type
-        $groupedData = [];
-        foreach ($results as $row) {
-            $type = $row['sensor_type'];
-            if (!isset($groupedData[$type])) {
-                $groupedData[$type] = [];
-            }
-            $groupedData[$type][] = [
-                'value' => $row['value'],
-                'unit' => $row['unit'],
-                'recorded_at' => $row['recorded_at']
-            ];
+        // Group by sensor type and assign to time slots
+        $slotData = [];
+        $sensorTypes = ['temperature', 'humidity', 'soil_moisture'];
+        
+        foreach ($sensorTypes as $type) {
+            $slotData[$type] = [];
         }
         
-        return $groupedData;
+        // Process readings and assign to time slots
+        foreach ($results as $row) {
+            $type = $row['sensor_type'];
+            if (!in_array($type, $sensorTypes)) continue;
+            
+            $secondsAgo = intval($row['seconds_ago']);
+            
+            // Calculate slot index (0 = most recent, 5 = oldest)
+            $slotIndex = floor($secondsAgo / $intervalSeconds);
+            
+            // Only include readings for slots 0-5
+            if ($slotIndex >= 0 && $slotIndex < 6) {
+                if (!isset($slotData[$type][$slotIndex])) {
+                    $slotData[$type][$slotIndex] = [
+                        'value' => $row['value'],
+                        'unit' => $row['unit'],
+                        'recorded_at' => $row['recorded_at']
+                    ];
+                }
+            }
+        }
+        
+        // Convert to sequential arrays (oldest to newest)
+        $finalData = [];
+        foreach ($sensorTypes as $type) {
+            $finalData[$type] = [];
+            for ($i = 5; $i >= 0; $i--) {
+                if (isset($slotData[$type][$i])) {
+                    $finalData[$type][] = $slotData[$type][$i];
+                }
+            }
+        }
+        
+        return $finalData;
         
     } catch (Exception $e) {
         error_log("Failed to get historical sensor data: " . $e->getMessage());
