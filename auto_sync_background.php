@@ -5,13 +5,36 @@
  * Does the same thing as manual_sync_test.php but returns JSON
  */
 
+// Suppress HTML error output - always return JSON
+error_reporting(0);
+ini_set('display_errors', 0);
+
+// Catch fatal errors and return JSON
+register_shutdown_function(function() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        if (!headers_sent()) {
+            header('Content-Type: application/json');
+        }
+        echo json_encode([
+            'success' => false,
+            'message' => 'Fatal error: ' . $error['message']
+        ]);
+    }
+});
+
 header('Content-Type: application/json');
 
 // Set timezone to Philippines (UTC+8)
 date_default_timezone_set('Asia/Manila');
 
-require_once 'config/database.php';
-require_once 'includes/plant-monitor-logic.php';
+try {
+    require_once 'config/database.php';
+    require_once 'includes/plant-monitor-logic.php';
+} catch (Exception $e) {
+    echo json_encode(['success' => false, 'message' => 'Include error: ' . $e->getMessage()]);
+    exit;
+}
 
 try {
     // Get sensor data from Arduino bridge

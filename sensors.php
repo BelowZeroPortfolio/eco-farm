@@ -503,6 +503,11 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
                         <i class="fas fa-clock mr-1"></i>Scan: <span id="scan-interval-display"><?php echo $sensorIntervalDisplay; ?></span>
                     </span>
                     
+                    <!-- InfinityFree Sync Status -->
+                    <span id="infinityfree-sync-status" class="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded-full font-medium" title="Browser sync to InfinityFree">
+                        <i class="fas fa-cloud mr-1"></i>Cloud: Waiting
+                    </span>
+                    
                     <!-- Reset Violations Button (Admin only) -->
                     <?php if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin'): ?>
                     <button onclick="resetViolations()" class="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-600 text-xs rounded-full font-medium" title="Reset violation counter">
@@ -684,6 +689,7 @@ $jsTranslations = $translations[$currentLanguage] ?? $translations['en'];
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="js/infinityfree_sync.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     if (typeof Chart === 'undefined') {
@@ -1193,6 +1199,12 @@ console.log('🌱 Plant Monitoring System Started');
 console.log('📊 Real-time updates: every ' + (realtimeInterval / 1000) + ' seconds');
 console.log('⚠️ Violation checks: every ' + (loggingInterval / 1000) + ' seconds (' + (loggingInterval / 60000) + ' minutes)');
 console.log('💾 Database logging: every ' + (loggingInterval / 60000) + ' minutes');
+
+// Initialize InfinityFree browser-based sync (bypasses anti-bot)
+if (typeof InfinityFreeSync !== 'undefined') {
+    InfinityFreeSync.init(loggingInterval / 1000); // Convert ms to seconds
+    console.log('🌐 InfinityFree browser sync enabled');
+}
 
 // Add real-time status indicator
 document.addEventListener('DOMContentLoaded', function() {

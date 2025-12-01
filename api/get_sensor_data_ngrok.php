@@ -5,10 +5,71 @@
  * Upload this file to InfinityFree
  */
 
+// Set timezone
+date_default_timezone_set('Asia/Manila');
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 
 require_once __DIR__ . '/../config/env.php';
+require_once __DIR__ . '/../config/database.php';
+
+/**
+ * Save sensor data to database (for historical records)
+ * Respects logging interval setting
+ */
+function saveSensorDataToDatabase($sensorData) {
+    try {
+        $pdo = getDatabaseConnection();
+        $savedCount = 0;
+        
+        foreach ($sensorData as $sensorType => $info) {
+            if (!isset($info['value']) || $info['value'] === null) continue;
+            
+            $value = $info['value'];
+            $unit = ['temperature' => '°C', 'humidity' => '%', 'soil_moisture' => '%'][$sensorType] ?? '';
+            
+            // Get or create sensor
+            $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? LIMIT 1");
+            $stmt->execute([$sensorType]);
+            $sensor = $stmt->fetch();
+            
+            if (!$sensor) {
+                $name = "Arduino " . ucfirst(str_replace('_', ' ', $sensorType));
+                $pdo->prepare("INSERT INTO sensors (sensor_name, sensor_type, location, status, created_at) VALUES (?, ?, 'Farm', 'online', NOW())")
+                    ->execute([$name, $sensorType]);
+                $sensorId = $pdo->lastInsertId();
+            } else {
+                $sensorId = $sensor['id'];
+            }
+            
+            // Check interval
+            $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
+            $stmt->execute();
+            $result = $stmt->fetch();
+            $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
+            
+            $stmt = $pdo->prepare("SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed FROM sensor_readings WHERE sensor_id = ?");
+            $stmt->execute([$sensorId]);
+            $result = $stmt->fetch();
+            
+            $shouldLog = !$result || $result['seconds_passed'] === null || intval($result['seconds_passed']) >= ($intervalMinutes * 60 - 1);
+            
+            if ($shouldLog) {
+                $pdo->prepare("INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) VALUES (?, ?, ?, NOW())")
+                    ->execute([$sensorId, $value, $unit]);
+                $pdo->prepare("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE id = ?")
+                    ->execute([$sensorId]);
+                $savedCount++;
+            }
+        }
+        
+        return $savedCount > 0;
+    } catch (Exception $e) {
+        error_log("saveSensorDataToDatabase error: " . $e->getMessage());
+        return false;
+    }
+}
 
 // Get Arduino ngrok configuration
 $arduinoHost = Env::get('ARDUINO_SENSOR_HOST', '');
@@ -66,12 +127,21 @@ try {
         throw new Exception("Invalid JSON response from Arduino bridge");
     }
     
+    $sensorData = $data['data'] ?? $data;
+    
+    // Also save to database for historical records (if save=1 parameter)
+    $saved = false;
+    if (isset($_GET['save']) && $_GET['save'] == '1') {
+        $saved = saveSensorDataToDatabase($sensorData);
+    }
+    
     // Return the sensor data
     echo json_encode([
         'success' => true,
-        'data' => $data['data'] ?? $data,
+        'data' => $sensorData,
         'timestamp' => date('Y-m-d H:i:s'),
-        'source' => 'ngrok_tunnel'
+        'source' => 'ngrok_tunnel',
+        'saved_to_db' => $saved
     ]);
     
 } catch (Exception $e) {

@@ -17,6 +17,22 @@ require_once 'includes/pest-config-helper.php';
 // Set timezone to Philippines (UTC+8)
 date_default_timezone_set('Asia/Manila');
 
+// Auto-sync from ngrok to database (for InfinityFree)
+// This pulls live data from ngrok and saves to database for historical records
+try {
+    $syncUrl = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? 'https' : 'http') . 
+               '://' . $_SERVER['HTTP_HOST'] . dirname($_SERVER['REQUEST_URI']) . '/api/sync_from_ngrok.php';
+    
+    $ch = curl_init($syncUrl);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_exec($ch);
+    curl_close($ch);
+} catch (Exception $e) {
+    // Silently fail - sync is optional
+}
+
 // Get sensor logging interval from settings for chart refresh
 $arduinoForInterval = new ArduinoBridge();
 $intervalSetting = $arduinoForInterval->getLoggingIntervalSetting();
