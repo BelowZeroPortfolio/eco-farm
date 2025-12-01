@@ -4,6 +4,9 @@
  * Returns the current sensor logging interval from settings
  */
 
+// Set timezone to Philippines (UTC+8)
+date_default_timezone_set('Asia/Manila');
+
 header('Content-Type: application/json');
 header('Access-Control-Allow-Origin: *');
 

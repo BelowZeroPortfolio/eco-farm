@@ -32,28 +32,32 @@ function colorLog($message, $type = 'info') {
 }
 
 /**
- * Get logging interval from local database
+ * Get logging interval from InfinityFree API
+ * Cannot connect directly to InfinityFree database from external machine
  */
 function getLoggingInterval() {
     try {
-        require_once __DIR__ . '/config/database.php';
-        $pdo = getDatabaseConnection();
+        $apiUrl = 'https://sagayecofarm.infinityfreeapp.com/api/get_sensor_interval.php';
         
-        $stmt = $pdo->prepare("
-            SELECT setting_value 
-            FROM user_settings 
-            WHERE setting_key = 'sensor_logging_interval' 
-            LIMIT 1
-        ");
-        $stmt->execute();
-        $result = $stmt->fetch();
+        $ch = curl_init($apiUrl);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'SagayeEcoFarm-Sync/1.0');
         
-        if ($result) {
-            $minutes = floatval($result['setting_value']);
-            return intval($minutes * 60); // Convert to seconds
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        if ($httpCode === 200) {
+            $data = json_decode($response, true);
+            if ($data && isset($data['interval_minutes'])) {
+                $minutes = floatval($data['interval_minutes']);
+                return max(5, intval($minutes * 60)); // Minimum 5 seconds
+            }
         }
     } catch (Exception $e) {
-        colorLog("Failed to get interval from database: " . $e->getMessage(), 'warning');
+        colorLog("Failed to get interval from API: " . $e->getMessage(), 'warning');
     }
     
     return 60; // Default: 1 minute
@@ -105,8 +109,15 @@ function uploadToInfinityFree($sensorType, $value, $unit) {
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'SagayeEcoFarm-Sync/1.0');
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/x-www-form-urlencoded',
+        'Accept: application/json'
+    ]);
     
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -114,18 +125,32 @@ function uploadToInfinityFree($sensorType, $value, $unit) {
     curl_close($ch);
     
     if ($error) {
-        throw new Exception("Upload failed: {$error}");
+        throw new Exception("cURL error: {$error}");
     }
     
     if ($httpCode !== 200) {
-        throw new Exception("Server returned HTTP {$httpCode}");
+        throw new Exception("HTTP {$httpCode}");
+    }
+    
+    // Check for HTML response (anti-bot or error page)
+    if (strpos($response, '<!DOCTYPE') !== false || strpos($response, '<html') !== false) {
+        throw new Exception("Got HTML instead of JSON (anti-bot?)");
     }
     
     $result = json_decode($response, true);
     
-    if (!$result || !isset($result['success']) || !$result['success']) {
-        $errorMsg = $result['error'] ?? 'Unknown error';
-        throw new Exception("Upload rejected: {$errorMsg}");
+    if ($result === null) {
+        throw new Exception("Invalid JSON: " . substr($response, 0, 50));
+    }
+    
+    // Handle skipped response (interval not reached) - this is OK
+    if (isset($result['skipped']) && $result['skipped']) {
+        return $result;
+    }
+    
+    if (!isset($result['success']) || !$result['success']) {
+        $errorMsg = $result['error'] ?? $result['message'] ?? 'Server rejected';
+        throw new Exception($errorMsg);
     }
     
     return $result;
@@ -154,11 +179,15 @@ function syncSensorData() {
             $unit = getUnitForSensor($sensorType);
             
             try {
-                uploadToInfinityFree($sensorType, $value, $unit);
-                colorLog("✓ {$sensorType}: {$value}{$unit} uploaded successfully", 'success');
+                $result = uploadToInfinityFree($sensorType, $value, $unit);
+                if (isset($result['skipped']) && $result['skipped']) {
+                    colorLog("⏭ {$sensorType}: {$value}{$unit} skipped (interval not reached)", 'info');
+                } else {
+                    colorLog("✓ {$sensorType}: {$value}{$unit} uploaded successfully", 'success');
+                }
                 $successCount++;
             } catch (Exception $e) {
-                colorLog("✗ {$sensorType}: Upload failed - " . $e->getMessage(), 'error');
+                colorLog("✗ {$sensorType}: " . $e->getMessage(), 'error');
                 $failCount++;
             }
         }
