@@ -95,14 +95,16 @@ function fetchArduinoData() {
 }
 
 /**
- * Upload sensor reading to InfinityFree
+ * Upload all sensor readings to InfinityFree in bulk
+ * Uses the sensorreadings table (stores all 3 values in one row)
  */
-function uploadToInfinityFree($sensorType, $value, $unit) {
+function uploadBulkToInfinityFree($temperature, $humidity, $soilMoisture) {
     $postData = [
         'api_key' => API_KEY,
-        'sensor_type' => $sensorType,
-        'value' => $value,
-        'unit' => $unit
+        'bulk' => 'true',
+        'temperature' => $temperature,
+        'humidity' => $humidity,
+        'soil_moisture' => $soilMoisture
     ];
     
     $ch = curl_init(INFINITYFREE_API_URL);
@@ -157,7 +159,63 @@ function uploadToInfinityFree($sensorType, $value, $unit) {
 }
 
 /**
- * Sync all sensor data
+ * Upload single sensor reading to InfinityFree (legacy support)
+ */
+function uploadToInfinityFree($sensorType, $value, $unit) {
+    $postData = [
+        'api_key' => API_KEY,
+        'sensor_type' => $sensorType,
+        'value' => $value,
+        'unit' => $unit
+    ];
+    
+    $ch = curl_init(INFINITYFREE_API_URL);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($postData));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'SagayeEcoFarm-Sync/1.0');
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/x-www-form-urlencoded',
+        'Accept: application/json'
+    ]);
+    
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $error = curl_error($ch);
+    curl_close($ch);
+    
+    if ($error) {
+        throw new Exception("cURL error: {$error}");
+    }
+    
+    if ($httpCode !== 200) {
+        throw new Exception("HTTP {$httpCode}");
+    }
+    
+    $result = json_decode($response, true);
+    
+    if ($result === null) {
+        throw new Exception("Invalid JSON: " . substr($response, 0, 50));
+    }
+    
+    if (isset($result['skipped']) && $result['skipped']) {
+        return $result;
+    }
+    
+    if (!isset($result['success']) || !$result['success']) {
+        $errorMsg = $result['error'] ?? $result['message'] ?? 'Server rejected';
+        throw new Exception($errorMsg);
+    }
+    
+    return $result;
+}
+
+/**
+ * Sync all sensor data (bulk upload to sensorreadings table)
  */
 function syncSensorData() {
     try {
@@ -165,10 +223,11 @@ function syncSensorData() {
         colorLog("Fetching data from Arduino bridge...", 'info');
         $arduinoData = fetchArduinoData();
         
-        $successCount = 0;
-        $failCount = 0;
+        // Extract sensor values
+        $temperature = null;
+        $humidity = null;
+        $soilMoisture = null;
         
-        // Upload each sensor type
         foreach ($arduinoData as $sensorType => $sensorInfo) {
             if (!isset($sensorInfo['value']) || $sensorInfo['value'] === null) {
                 colorLog("⚠️  {$sensorType}: No data available", 'warning');
@@ -177,30 +236,49 @@ function syncSensorData() {
             
             $value = $sensorInfo['value'];
             $unit = getUnitForSensor($sensorType);
+            colorLog("📊 {$sensorType}: {$value}{$unit}", 'info');
             
-            try {
-                $result = uploadToInfinityFree($sensorType, $value, $unit);
-                if (isset($result['skipped']) && $result['skipped']) {
-                    colorLog("⏭ {$sensorType}: {$value}{$unit} skipped (interval not reached)", 'info');
-                } else {
-                    colorLog("✓ {$sensorType}: {$value}{$unit} uploaded successfully", 'success');
-                }
-                $successCount++;
-            } catch (Exception $e) {
-                colorLog("✗ {$sensorType}: " . $e->getMessage(), 'error');
-                $failCount++;
+            switch ($sensorType) {
+                case 'temperature':
+                    $temperature = $value;
+                    break;
+                case 'humidity':
+                    $humidity = $value;
+                    break;
+                case 'soil_moisture':
+                    $soilMoisture = $value;
+                    break;
             }
         }
         
-        // Summary
-        $total = $successCount + $failCount;
-        if ($successCount > 0) {
-            colorLog("Sync complete: {$successCount}/{$total} sensors uploaded", 'success');
-        } else {
-            colorLog("Sync failed: No sensors uploaded", 'error');
+        // Check if we have at least one sensor value
+        if ($temperature === null && $humidity === null && $soilMoisture === null) {
+            colorLog("✗ No sensor data available to upload", 'error');
+            return false;
         }
         
-        return $successCount > 0;
+        // Bulk upload all sensors at once to sensorreadings table
+        try {
+            $result = uploadBulkToInfinityFree(
+                $temperature ?? 0,
+                $humidity ?? 0,
+                $soilMoisture ?? 0
+            );
+            
+            if (isset($result['skipped']) && $result['skipped']) {
+                colorLog("⏭ Skipped - logging interval not reached", 'info');
+            } else {
+                colorLog("✓ All sensors uploaded to sensorreadings table", 'success');
+                if (isset($result['plant_id'])) {
+                    colorLog("  Plant ID: {$result['plant_id']}", 'info');
+                }
+            }
+            return true;
+            
+        } catch (Exception $e) {
+            colorLog("✗ Bulk upload failed: " . $e->getMessage(), 'error');
+            return false;
+        }
         
     } catch (Exception $e) {
         colorLog("Sync error: " . $e->getMessage(), 'error');

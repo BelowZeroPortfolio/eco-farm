@@ -15,60 +15,111 @@ require_once __DIR__ . '/../config/env.php';
 require_once __DIR__ . '/../config/database.php';
 
 /**
- * Save sensor data to database (for historical records)
+ * Save sensor data to sensorreadings table (for historical records)
  * Respects logging interval setting
  */
 function saveSensorDataToDatabase($sensorData) {
     try {
         $pdo = getDatabaseConnection();
-        $savedCount = 0;
+        
+        // Set MySQL session timezone to Philippines (UTC+8)
+        $pdo->exec("SET time_zone = '+08:00'");
+        
+        // Extract sensor values
+        $temperature = null;
+        $humidity = null;
+        $soilMoisture = null;
         
         foreach ($sensorData as $sensorType => $info) {
             if (!isset($info['value']) || $info['value'] === null) continue;
             
-            $value = $info['value'];
-            $unit = ['temperature' => '°C', 'humidity' => '%', 'soil_moisture' => '%'][$sensorType] ?? '';
-            
-            // Get or create sensor
-            $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? LIMIT 1");
-            $stmt->execute([$sensorType]);
-            $sensor = $stmt->fetch();
-            
-            if (!$sensor) {
-                $name = "Arduino " . ucfirst(str_replace('_', ' ', $sensorType));
-                $pdo->prepare("INSERT INTO sensors (sensor_name, sensor_type, location, status, created_at) VALUES (?, ?, 'Farm', 'online', NOW())")
-                    ->execute([$name, $sensorType]);
-                $sensorId = $pdo->lastInsertId();
-            } else {
-                $sensorId = $sensor['id'];
-            }
-            
-            // Check interval
-            $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
-            $stmt->execute();
-            $result = $stmt->fetch();
-            $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
-            
-            $stmt = $pdo->prepare("SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed FROM sensor_readings WHERE sensor_id = ?");
-            $stmt->execute([$sensorId]);
-            $result = $stmt->fetch();
-            
-            $shouldLog = !$result || $result['seconds_passed'] === null || intval($result['seconds_passed']) >= ($intervalMinutes * 60 - 1);
-            
-            if ($shouldLog) {
-                $pdo->prepare("INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) VALUES (?, ?, ?, NOW())")
-                    ->execute([$sensorId, $value, $unit]);
-                $pdo->prepare("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE id = ?")
-                    ->execute([$sensorId]);
-                $savedCount++;
+            switch ($sensorType) {
+                case 'temperature':
+                    $temperature = floatval($info['value']);
+                    break;
+                case 'humidity':
+                    $humidity = intval($info['value']);
+                    break;
+                case 'soil_moisture':
+                    $soilMoisture = intval($info['value']);
+                    break;
             }
         }
         
-        return $savedCount > 0;
+        // Check if we have at least one value
+        if ($temperature === null && $humidity === null && $soilMoisture === null) {
+            return false;
+        }
+        
+        // Check interval
+        $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
+        $stmt->execute();
+        $result = $stmt->fetch();
+        $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
+        
+        $stmt = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed FROM sensorreadings");
+        $result = $stmt->fetch();
+        
+        $shouldLog = !$result || $result['seconds_passed'] === null || intval($result['seconds_passed']) >= ($intervalMinutes * 60 - 1);
+        
+        if (!$shouldLog) {
+            return false;
+        }
+        
+        // Get active plant ID
+        $plantId = getActivePlantId($pdo);
+        if (!$plantId) {
+            error_log("saveSensorDataToDatabase: No active plant found");
+            return false;
+        }
+        
+        // Insert into sensorreadings table
+        $stmt = $pdo->prepare("
+            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+            VALUES (?, ?, ?, ?, 0, NOW())
+        ");
+        $stmt->execute([
+            $plantId,
+            $soilMoisture ?? 0,
+            $temperature ?? 0,
+            $humidity ?? 0
+        ]);
+        
+        // Update sensor statuses
+        $pdo->exec("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')");
+        
+        return true;
     } catch (Exception $e) {
         error_log("saveSensorDataToDatabase error: " . $e->getMessage());
         return false;
     }
+}
+
+/**
+ * Get the currently active/selected plant ID
+ */
+function getActivePlantId($pdo) {
+    // First try activeplant table (single selected plant)
+    $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    
+    if ($result && $result['SelectedPlantID']) {
+        return intval($result['SelectedPlantID']);
+    }
+    
+    // Fallback to activeplants table (first active plant)
+    $stmt = $pdo->query("SELECT PlantID FROM activeplants ORDER BY ActivatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    
+    if ($result && $result['PlantID']) {
+        return intval($result['PlantID']);
+    }
+    
+    // Final fallback: first plant in plants table
+    $stmt = $pdo->query("SELECT PlantID FROM plants ORDER BY PlantID LIMIT 1");
+    $result = $stmt->fetch();
+    
+    return $result ? intval($result['PlantID']) : null;
 }
 
 // Get Arduino ngrok configuration

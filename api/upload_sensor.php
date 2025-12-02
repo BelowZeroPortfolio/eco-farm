@@ -2,6 +2,7 @@
 /**
  * API Endpoint: Upload Sensor Data
  * Receives sensor readings from local Arduino system
+ * Stores data in sensorreadings table (linked to active plant)
  * Upload this file to InfinityFree
  */
 
@@ -33,13 +34,19 @@ if ($providedKey !== API_KEY) {
     exit;
 }
 
-// Get sensor data
+// Check if this is a bulk upload (all sensors at once)
+if (isset($_POST['bulk']) && $_POST['bulk'] === 'true') {
+    handleBulkUpload();
+    exit;
+}
+
+// Get sensor data (single sensor upload - legacy support)
 $sensorType = $_POST['sensor_type'] ?? '';
 $value = $_POST['value'] ?? '';
 $unit = $_POST['unit'] ?? '';
 
 // Validate inputs
-if (empty($sensorType) || empty($value)) {
+if (empty($sensorType) || $value === '') {
     http_response_code(400);
     echo json_encode(['error' => 'Missing required fields: sensor_type, value']);
     exit;
@@ -63,7 +70,10 @@ if (!is_numeric($value)) {
 try {
     $pdo = getDatabaseConnection();
     
-    // Get or create sensor
+    // Set MySQL session timezone to Philippines (UTC+8)
+    $pdo->exec("SET time_zone = '+08:00'");
+    
+    // Get or create sensor (for sensors table status tracking)
     $sensorId = getOrCreateSensor($pdo, $sensorType);
     
     if (!$sensorId) {
@@ -71,7 +81,7 @@ try {
     }
     
     // Check if enough time has passed since last reading (respects interval setting)
-    if (!shouldLogReading($pdo, $sensorId)) {
+    if (!shouldLogReading($pdo)) {
         // Return success but indicate skipped (interval not reached)
         echo json_encode([
             'success' => true,
@@ -84,15 +94,33 @@ try {
         exit;
     }
     
-    // Insert reading
+    // Get active plant ID
+    $plantId = getActivePlantId($pdo);
+    
+    if (!$plantId) {
+        throw new Exception('No active plant selected');
+    }
+    
+    // For single sensor upload, we need to get existing values or use defaults
+    $currentValues = getCurrentSensorValues($pdo, $plantId);
+    
+    // Update the specific sensor value
+    $currentValues[$sensorType] = floatval($value);
+    
+    // Insert into sensorreadings table
     $stmt = $pdo->prepare("
-        INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) 
-        VALUES (?, ?, ?, NOW())
+        INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+        VALUES (?, ?, ?, ?, 0, NOW())
     ");
     
-    $stmt->execute([$sensorId, $value, $unit]);
+    $stmt->execute([
+        $plantId,
+        intval($currentValues['soil_moisture']),
+        floatval($currentValues['temperature']),
+        intval($currentValues['humidity'])
+    ]);
     
-    // Update sensor status
+    // Update sensor status in sensors table
     $updateStmt = $pdo->prepare("
         UPDATE sensors 
         SET last_reading_at = NOW(), status = 'online' 
@@ -103,10 +131,10 @@ try {
     // Success response
     echo json_encode([
         'success' => true,
-        'message' => 'Sensor reading uploaded successfully',
+        'message' => 'Sensor reading uploaded to sensorreadings table',
         'sensor_type' => $sensorType,
         'value' => $value,
-        'unit' => $unit,
+        'plant_id' => $plantId,
         'timestamp' => date('Y-m-d H:i:s')
     ]);
     
@@ -118,9 +146,146 @@ try {
 }
 
 /**
+ * Handle bulk upload of all sensor data at once
+ * This is the preferred method - uploads all 3 sensors in one request
+ */
+function handleBulkUpload()
+{
+    $temperature = $_POST['temperature'] ?? null;
+    $humidity = $_POST['humidity'] ?? null;
+    $soilMoisture = $_POST['soil_moisture'] ?? null;
+    
+    // Validate at least one value is provided
+    if ($temperature === null && $humidity === null && $soilMoisture === null) {
+        http_response_code(400);
+        echo json_encode(['error' => 'At least one sensor value required']);
+        exit;
+    }
+    
+    try {
+        $pdo = getDatabaseConnection();
+        
+        // Set MySQL session timezone to Philippines (UTC+8)
+        $pdo->exec("SET time_zone = '+08:00'");
+        
+        // Check if enough time has passed since last reading
+        if (!shouldLogReading($pdo)) {
+            echo json_encode([
+                'success' => true,
+                'message' => 'Skipped - logging interval not reached',
+                'skipped' => true,
+                'timestamp' => date('Y-m-d H:i:s')
+            ]);
+            exit;
+        }
+        
+        // Get active plant ID
+        $plantId = getActivePlantId($pdo);
+        
+        if (!$plantId) {
+            throw new Exception('No active plant selected');
+        }
+        
+        // Use provided values or defaults
+        $temp = $temperature !== null ? floatval($temperature) : 0;
+        $hum = $humidity !== null ? intval($humidity) : 0;
+        $soil = $soilMoisture !== null ? intval($soilMoisture) : 0;
+        
+        // Insert into sensorreadings table
+        $stmt = $pdo->prepare("
+            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+            VALUES (?, ?, ?, ?, 0, NOW())
+        ");
+        
+        $stmt->execute([$plantId, $soil, $temp, $hum]);
+        
+        // Update all sensor statuses
+        $pdo->exec("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')");
+        
+        echo json_encode([
+            'success' => true,
+            'message' => 'All sensor readings uploaded to sensorreadings table',
+            'plant_id' => $plantId,
+            'values' => [
+                'temperature' => $temp,
+                'humidity' => $hum,
+                'soil_moisture' => $soil
+            ],
+            'timestamp' => date('Y-m-d H:i:s')
+        ]);
+        
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode([
+            'error' => 'Database error: ' . $e->getMessage()
+        ]);
+    }
+}
+
+/**
+ * Get the currently active/selected plant ID
+ */
+function getActivePlantId($pdo)
+{
+    // First try activeplant table (single selected plant)
+    $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    
+    if ($result && $result['SelectedPlantID']) {
+        return intval($result['SelectedPlantID']);
+    }
+    
+    // Fallback to activeplants table (first active plant)
+    $stmt = $pdo->query("SELECT PlantID FROM activeplants ORDER BY ActivatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    
+    if ($result && $result['PlantID']) {
+        return intval($result['PlantID']);
+    }
+    
+    // Final fallback: first plant in plants table
+    $stmt = $pdo->query("SELECT PlantID FROM plants ORDER BY PlantID LIMIT 1");
+    $result = $stmt->fetch();
+    
+    return $result ? intval($result['PlantID']) : null;
+}
+
+/**
+ * Get current sensor values (for partial updates)
+ */
+function getCurrentSensorValues($pdo, $plantId)
+{
+    // Get the most recent reading for this plant
+    $stmt = $pdo->prepare("
+        SELECT SoilMoisture, Temperature, Humidity 
+        FROM sensorreadings 
+        WHERE PlantID = ? 
+        ORDER BY ReadingTime DESC 
+        LIMIT 1
+    ");
+    $stmt->execute([$plantId]);
+    $result = $stmt->fetch();
+    
+    if ($result) {
+        return [
+            'soil_moisture' => intval($result['SoilMoisture']),
+            'temperature' => floatval($result['Temperature']),
+            'humidity' => intval($result['Humidity'])
+        ];
+    }
+    
+    // Default values if no previous reading
+    return [
+        'soil_moisture' => 0,
+        'temperature' => 0,
+        'humidity' => 0
+    ];
+}
+
+/**
  * Check if enough time has passed to log a new reading based on interval setting
  */
-function shouldLogReading($pdo, $sensorId)
+function shouldLogReading($pdo)
 {
     try {
         // Get logging interval from settings (in minutes)
@@ -134,13 +299,11 @@ function shouldLogReading($pdo, $sensorId)
         $result = $stmt->fetch();
         $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
         
-        // Get seconds since last reading using MySQL's time functions
-        $stmt = $pdo->prepare("
-            SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed
-            FROM sensor_readings 
-            WHERE sensor_id = ?
+        // Get seconds since last reading from sensorreadings table
+        $stmt = $pdo->query("
+            SELECT TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed
+            FROM sensorreadings
         ");
-        $stmt->execute([$sensorId]);
         $result = $stmt->fetch();
         
         // If no previous reading, allow logging
@@ -161,7 +324,7 @@ function shouldLogReading($pdo, $sensorId)
 }
 
 /**
- * Get or create sensor record
+ * Get or create sensor record (for status tracking in sensors table)
  */
 function getOrCreateSensor($pdo, $sensorType)
 {

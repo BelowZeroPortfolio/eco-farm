@@ -68,9 +68,16 @@ try {
     
     $sensorData = $data['data'];
     $pdo = getDatabaseConnection();
-    $savedCount = 0;
-    $skippedCount = 0;
+    
+    // Set MySQL session timezone to Philippines (UTC+8)
+    $pdo->exec("SET time_zone = '+08:00'");
+    
     $results = [];
+    
+    // Extract sensor values
+    $temperature = null;
+    $humidity = null;
+    $soilMoisture = null;
     
     foreach ($sensorData as $sensorType => $info) {
         if (!isset($info['value']) || $info['value'] === null) {
@@ -78,54 +85,109 @@ try {
             continue;
         }
         
-        $value = $info['value'];
-        $unit = ['temperature' => '°C', 'humidity' => '%', 'soil_moisture' => '%'][$sensorType] ?? '';
+        $results[$sensorType] = $info['value'];
         
-        // Get or create sensor
-        $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? LIMIT 1");
-        $stmt->execute([$sensorType]);
-        $sensor = $stmt->fetch();
-        
-        if (!$sensor) {
-            $name = "Arduino " . ucfirst(str_replace('_', ' ', $sensorType));
-            $pdo->prepare("INSERT INTO sensors (sensor_name, sensor_type, location, status, created_at) VALUES (?, ?, 'Farm', 'online', NOW())")
-                ->execute([$name, $sensorType]);
-            $sensorId = $pdo->lastInsertId();
-        } else {
-            $sensorId = $sensor['id'];
-        }
-        
-        // Check interval
-        $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
-        $stmt->execute();
-        $result = $stmt->fetch();
-        $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
-        
-        $stmt = $pdo->prepare("SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed FROM sensor_readings WHERE sensor_id = ?");
-        $stmt->execute([$sensorId]);
-        $result = $stmt->fetch();
-        
-        $secondsPassed = $result && $result['seconds_passed'] !== null ? intval($result['seconds_passed']) : 999999;
-        $intervalSeconds = $intervalMinutes * 60;
-        $shouldLog = $secondsPassed >= ($intervalSeconds - 1);
-        
-        if ($shouldLog) {
-            $pdo->prepare("INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) VALUES (?, ?, ?, NOW())")
-                ->execute([$sensorId, $value, $unit]);
-            $pdo->prepare("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE id = ?")
-                ->execute([$sensorId]);
-            $savedCount++;
-            $results[$sensorType] = 'saved';
-        } else {
-            $skippedCount++;
-            $results[$sensorType] = 'skipped_interval';
+        switch ($sensorType) {
+            case 'temperature':
+                $temperature = floatval($info['value']);
+                break;
+            case 'humidity':
+                $humidity = intval($info['value']);
+                break;
+            case 'soil_moisture':
+                $soilMoisture = intval($info['value']);
+                break;
         }
     }
     
+    // Check if we have at least one value
+    if ($temperature === null && $humidity === null && $soilMoisture === null) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'No sensor data available',
+            'results' => $results
+        ]);
+        exit;
+    }
+    
+    // Check interval
+    $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
+    $stmt->execute();
+    $result = $stmt->fetch();
+    $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
+    
+    $stmt = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed FROM sensorreadings");
+    $result = $stmt->fetch();
+    
+    $secondsPassed = $result && $result['seconds_passed'] !== null ? intval($result['seconds_passed']) : 999999;
+    $intervalSeconds = $intervalMinutes * 60;
+    $shouldLog = $secondsPassed >= ($intervalSeconds - 1);
+    
+    if (!$shouldLog) {
+        echo json_encode([
+            'success' => true,
+            'saved' => 0,
+            'skipped' => 1,
+            'message' => 'Skipped - logging interval not reached',
+            'results' => $results,
+            'timestamp' => date('Y-m-d H:i:s'),
+            'ngrok_host' => $arduinoHost
+        ]);
+        exit;
+    }
+    
+    // Get active plant ID
+    $plantId = null;
+    $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    if ($result && $result['SelectedPlantID']) {
+        $plantId = intval($result['SelectedPlantID']);
+    } else {
+        $stmt = $pdo->query("SELECT PlantID FROM activeplants ORDER BY ActivatedAt DESC LIMIT 1");
+        $result = $stmt->fetch();
+        if ($result && $result['PlantID']) {
+            $plantId = intval($result['PlantID']);
+        } else {
+            $stmt = $pdo->query("SELECT PlantID FROM plants ORDER BY PlantID LIMIT 1");
+            $result = $stmt->fetch();
+            $plantId = $result ? intval($result['PlantID']) : null;
+        }
+    }
+    
+    if (!$plantId) {
+        echo json_encode([
+            'success' => false,
+            'error' => 'No active plant found',
+            'results' => $results
+        ]);
+        exit;
+    }
+    
+    // Insert into sensorreadings table
+    $stmt = $pdo->prepare("
+        INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+        VALUES (?, ?, ?, ?, 0, NOW())
+    ");
+    $stmt->execute([
+        $plantId,
+        $soilMoisture ?? 0,
+        $temperature ?? 0,
+        $humidity ?? 0
+    ]);
+    
+    // Update sensor statuses
+    $pdo->exec("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')");
+    
     echo json_encode([
         'success' => true,
-        'saved' => $savedCount,
-        'skipped' => $skippedCount,
+        'saved' => 1,
+        'skipped' => 0,
+        'plant_id' => $plantId,
+        'values' => [
+            'temperature' => $temperature ?? 0,
+            'humidity' => $humidity ?? 0,
+            'soil_moisture' => $soilMoisture ?? 0
+        ],
         'results' => $results,
         'timestamp' => date('Y-m-d H:i:s'),
         'ngrok_host' => $arduinoHost

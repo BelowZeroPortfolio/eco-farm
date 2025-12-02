@@ -30,6 +30,7 @@ date_default_timezone_set('Asia/Manila');
 
 try {
     require_once 'config/database.php';
+    require_once 'config/env.php';
     require_once 'includes/plant-monitor-logic.php';
 } catch (Exception $e) {
     echo json_encode(['success' => false, 'message' => 'Include error: ' . $e->getMessage()]);
@@ -37,15 +38,44 @@ try {
 }
 
 try {
+    // Determine Arduino bridge URL based on environment
+    $isLocal = (isset($_SERVER['HTTP_HOST']) && 
+                (strpos($_SERVER['HTTP_HOST'], 'localhost') !== false || 
+                 strpos($_SERVER['HTTP_HOST'], '127.0.0.1') !== false));
+    
+    if ($isLocal) {
+        // Local environment - use localhost
+        $arduinoUrl = 'http://127.0.0.1:5001/data';
+        $headers = "User-Agent: Mozilla/5.0\r\n";
+    } else {
+        // Online environment - use ngrok tunnel from env.php
+        $protocol = Env::get('ARDUINO_SENSOR_PROTOCOL', 'https');
+        $host = Env::get('ARDUINO_SENSOR_HOST', 'fredda-unprecisive-unashamedly.ngrok-free.dev');
+        $arduinoUrl = "{$protocol}://{$host}/data";
+        // Ngrok requires this header to bypass browser warning
+        $headers = "User-Agent: Mozilla/5.0\r\n" .
+                   "ngrok-skip-browser-warning: true\r\n";
+    }
+    
     // Get sensor data from Arduino bridge
-    $response = @file_get_contents('http://127.0.0.1:5000/data', false, stream_context_create([
-        'http' => ['timeout' => 2]
+    $response = @file_get_contents($arduinoUrl, false, stream_context_create([
+        'http' => [
+            'timeout' => 5,
+            'ignore_errors' => true,
+            'header' => $headers
+        ],
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false
+        ]
     ]));
     
     if (!$response) {
         echo json_encode([
             'success' => false,
-            'message' => 'Cannot connect to Arduino bridge'
+            'message' => 'Cannot connect to Arduino bridge',
+            'url' => $arduinoUrl,
+            'environment' => $isLocal ? 'local' : 'online'
         ]);
         exit;
     }

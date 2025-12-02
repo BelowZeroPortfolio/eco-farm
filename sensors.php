@@ -67,69 +67,130 @@ function getDateRange($period) {
     }
 }
 
-// Get filtered sensor data
+// Get filtered sensor data from sensorreadings table (plant monitoring data)
 function getFilteredSensorData($sensorType = 'all', $startDate) {
     try {
         $pdo = getDatabaseConnection();
         
-        $whereClause = "WHERE sr.recorded_at >= ?";
+        $whereClause = "WHERE sr.ReadingTime >= ?";
         $params = [$startDate];
-        
-        if ($sensorType !== 'all') {
-            $whereClause .= " AND s.sensor_type = ?";
-            $params[] = $sensorType;
-        }
         
         $stmt = $pdo->prepare("
             SELECT 
-                s.id as sensor_id,
-                s.sensor_name,
-                s.sensor_type,
-                s.location,
-                sr.value,
-                sr.unit,
-                sr.recorded_at
-            FROM sensors s
-            JOIN sensor_readings sr ON s.id = sr.sensor_id
+                sr.ReadingID as sensor_id,
+                p.PlantName as sensor_name,
+                sr.Temperature,
+                sr.Humidity,
+                sr.SoilMoisture,
+                sr.ReadingTime as recorded_at
+            FROM sensorreadings sr
+            LEFT JOIN plants p ON sr.PlantID = p.PlantID
             $whereClause
-            ORDER BY sr.recorded_at ASC
+            ORDER BY sr.ReadingTime ASC
         ");
         $stmt->execute($params);
-        return $stmt->fetchAll();
+        $readings = $stmt->fetchAll();
+        
+        // Transform to expected format based on sensor type filter
+        $result = [];
+        foreach ($readings as $row) {
+            if ($sensorType === 'all' || $sensorType === 'temperature') {
+                $result[] = [
+                    'sensor_id' => $row['sensor_id'],
+                    'sensor_name' => $row['sensor_name'] ?? 'Plant Sensor',
+                    'sensor_type' => 'temperature',
+                    'location' => 'Farm Field',
+                    'value' => $row['Temperature'],
+                    'unit' => '°C',
+                    'recorded_at' => $row['recorded_at']
+                ];
+            }
+            if ($sensorType === 'all' || $sensorType === 'humidity') {
+                $result[] = [
+                    'sensor_id' => $row['sensor_id'],
+                    'sensor_name' => $row['sensor_name'] ?? 'Plant Sensor',
+                    'sensor_type' => 'humidity',
+                    'location' => 'Farm Field',
+                    'value' => $row['Humidity'],
+                    'unit' => '%',
+                    'recorded_at' => $row['recorded_at']
+                ];
+            }
+            if ($sensorType === 'all' || $sensorType === 'soil_moisture') {
+                $result[] = [
+                    'sensor_id' => $row['sensor_id'],
+                    'sensor_name' => $row['sensor_name'] ?? 'Plant Sensor',
+                    'sensor_type' => 'soil_moisture',
+                    'location' => 'Farm Field',
+                    'value' => $row['SoilMoisture'],
+                    'unit' => '%',
+                    'recorded_at' => $row['recorded_at']
+                ];
+            }
+        }
+        return $result;
     } catch (Exception $e) {
         error_log("Failed to get filtered sensor data: " . $e->getMessage());
         return [];
     }
 }
 
-// Get sensor statistics
+// Get sensor statistics from sensorreadings table
 function getSensorStats($sensorType = 'all', $startDate) {
     try {
         $pdo = getDatabaseConnection();
         
-        $whereClause = "WHERE sr.recorded_at >= ?";
-        $params = [$startDate];
-        
-        if ($sensorType !== 'all') {
-            $whereClause .= " AND s.sensor_type = ?";
-            $params[] = $sensorType;
-        }
-        
         $stmt = $pdo->prepare("
             SELECT 
-                s.sensor_type,
                 COUNT(*) as reading_count,
-                AVG(sr.value) as avg_value,
-                MIN(sr.value) as min_value,
-                MAX(sr.value) as max_value,
-                sr.unit
-            FROM sensors s
-            JOIN sensor_readings sr ON s.id = sr.sensor_id
-            $whereClause
-            GROUP BY s.sensor_type, sr.unit
+                AVG(Temperature) as avg_temp,
+                MIN(Temperature) as min_temp,
+                MAX(Temperature) as max_temp,
+                AVG(Humidity) as avg_hum,
+                MIN(Humidity) as min_hum,
+                MAX(Humidity) as max_hum,
+                AVG(SoilMoisture) as avg_soil,
+                MIN(SoilMoisture) as min_soil,
+                MAX(SoilMoisture) as max_soil
+            FROM sensorreadings
+            WHERE ReadingTime >= ?
         ");
-        $stmt->execute($params);
-        return $stmt->fetchAll();
+        $stmt->execute([$startDate]);
+        $row = $stmt->fetch();
+        
+        // Transform to expected format
+        $result = [];
+        if ($sensorType === 'all' || $sensorType === 'temperature') {
+            $result[] = [
+                'sensor_type' => 'temperature',
+                'reading_count' => $row['reading_count'],
+                'avg_value' => $row['avg_temp'],
+                'min_value' => $row['min_temp'],
+                'max_value' => $row['max_temp'],
+                'unit' => '°C'
+            ];
+        }
+        if ($sensorType === 'all' || $sensorType === 'humidity') {
+            $result[] = [
+                'sensor_type' => 'humidity',
+                'reading_count' => $row['reading_count'],
+                'avg_value' => $row['avg_hum'],
+                'min_value' => $row['min_hum'],
+                'max_value' => $row['max_hum'],
+                'unit' => '%'
+            ];
+        }
+        if ($sensorType === 'all' || $sensorType === 'soil_moisture') {
+            $result[] = [
+                'sensor_type' => 'soil_moisture',
+                'reading_count' => $row['reading_count'],
+                'avg_value' => $row['avg_soil'],
+                'min_value' => $row['min_soil'],
+                'max_value' => $row['max_soil'],
+                'unit' => '%'
+            ];
+        }
+        return $result;
     } catch (Exception $e) {
         error_log("Failed to get sensor stats: " . $e->getMessage());
         return [];

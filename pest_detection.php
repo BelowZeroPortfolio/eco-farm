@@ -1117,7 +1117,7 @@ include 'includes/header.php';
             const readClass = detection.is_read ? 'bg-gray-50 dark:bg-gray-700/50' : 'bg-white dark:bg-gray-800';
 
             html += `
-                    <div class="${readClass} hover:bg-gray-50 dark:hover:bg-gray-700 p-3 cursor-pointer transition-colors" onclick="viewAlertDetails(${detection.id})">
+                    <div class="${readClass} hover:bg-gray-50 dark:hover:bg-gray-700 p-3 cursor-pointer transition-colors" onclick="viewAlertDetails(${detection.id || 0})">
                         <div class="flex items-center gap-3">
                             <div class="w-8 h-8 bg-${color}-100 dark:bg-${color}-900 rounded-lg flex items-center justify-center flex-shrink-0">
                                 <i class="fas fa-bug text-${color}-600 dark:text-${color}-400 text-sm"></i>
@@ -1276,7 +1276,7 @@ include 'includes/header.php';
 
             return `
                     <div class="border ${severityColors[notif.severity]} rounded-lg p-4 cursor-pointer hover:shadow-md transition-shadow" 
-                         onclick="viewAlertDetails(${notif.id})">
+                         onclick="viewAlertDetails(${notif.id || 0})">
                         <div class="flex items-start justify-between mb-2">
                             <div class="flex items-center gap-2">
                                 <i class="fas ${severityIcons[notif.severity]}"></i>
@@ -1407,6 +1407,16 @@ include 'includes/header.php';
      * View alert details in a modal
      */
     async function viewAlertDetails(alertId) {
+        // Validate alertId before making API call
+        if (alertId === undefined || alertId === null || alertId === '' || isNaN(parseInt(alertId)) || parseInt(alertId) <= 0) {
+            console.error('viewAlertDetails called with invalid alertId:', alertId);
+            showToast('Unable to load alert details: Invalid alert ID', 'error');
+            return;
+        }
+        
+        // Ensure alertId is an integer
+        alertId = parseInt(alertId);
+        
         // Show loading state
         const loadingModal = `
             <div class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4" id="loading-modal">
