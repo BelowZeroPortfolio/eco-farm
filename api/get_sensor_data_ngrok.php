@@ -78,8 +78,8 @@ function saveSensorDataToDatabase($sensorData) {
             return false;
         }
         
-        // Use PHP date() to ensure correct Philippine timezone
-        $philippineTime = date('Y-m-d H:i:s');
+        // Add +16 hours to correct timezone offset
+        $correctedTime = date('Y-m-d H:i:s', strtotime('+16 hours'));
         
         // Insert into sensorreadings table
         $stmt = $pdo->prepare("
@@ -91,11 +91,11 @@ function saveSensorDataToDatabase($sensorData) {
             $soilMoisture ?? 0,
             $temperature ?? 0,
             $humidity ?? 0,
-            $philippineTime
+            $correctedTime
         ]);
         
         // Update sensor statuses
-        $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")->execute([$philippineTime]);
+        $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")->execute([$correctedTime]);
         
         return true;
     } catch (Exception $e) {

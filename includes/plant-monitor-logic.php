@@ -179,11 +179,14 @@ class PlantMonitor {
      * Save sensor reading to database
      */
     private function saveSensorReading($plantID, $soilMoisture, $temperature, $humidity, $warningLevel) {
+        // Use Philippine time (timezone set in constructor to Asia/Manila)
+        $philippineTime = date('Y-m-d H:i:s');
+        
         $stmt = $this->pdo->prepare("
-            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime)
+            VALUES (?, ?, ?, ?, ?, ?)
         ");
-        $stmt->execute([$plantID, $soilMoisture, $temperature, $humidity, $warningLevel]);
+        $stmt->execute([$plantID, $soilMoisture, $temperature, $humidity, $warningLevel, $philippineTime]);
         return $this->pdo->lastInsertId();
     }
     
@@ -202,10 +205,13 @@ class PlantMonitor {
         
         $sensorType = strtolower(str_replace(' ', '_', $violation['sensor']));
         
+        // Use Philippine time for CreatedAt
+        $philippineTime = date('Y-m-d H:i:s');
+        
         $stmt = $this->pdo->prepare("
             INSERT INTO notifications 
-            (PlantID, Message, SensorType, Level, SuggestedAction, CurrentValue, RequiredRange, Status)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (PlantID, Message, SensorType, Level, SuggestedAction, CurrentValue, RequiredRange, Status, CreatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ");
         
         $stmt->execute([
@@ -216,7 +222,8 @@ class PlantMonitor {
             $this->activePlant['SuggestedAction'],
             $violation['current'],
             $violation['range'],
-            $violation['status']
+            $violation['status'],
+            $philippineTime
         ]);
     }
     

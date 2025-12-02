@@ -46,19 +46,19 @@ $navigationSections = [
     'monitoring' => [
         'title' => 'Monitoring',
         'items' => [
-            'sensors' => [
-                'title' => 'Sensors',
-                'icon' => 'fas fa-thermometer-half',
-                'url' => 'sensors.php',
-                'roles' => ['admin', 'farmer', 'student'],
-                'description' => 'Environmental sensor data'
-            ],
             'pest_detection' => [
                 'title' => 'Pest Detection',
                 'icon' => 'fas fa-bug',
                 'url' => 'pest_detection.php',
                 'roles' => ['admin', 'farmer', 'student'],
                 'description' => 'AI-powered pest monitoring'
+            ],
+            'sensors' => [
+                'title' => 'Sensors',
+                'icon' => 'fas fa-thermometer-half',
+                'url' => 'sensors.php',
+                'roles' => ['admin', 'farmer', 'student'],
+                'description' => 'Environmental sensor data'
             ],
             'notifications' => [
                 'title' => 'Notifications',

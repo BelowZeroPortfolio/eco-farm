@@ -1,69 +1,211 @@
 <?php
 
 /**
- * IoT Farm Monitoring System Chatbot Component
+ * Eco-Farm IoT Monitoring System Chatbot Component
  * 
- * Interactive chatbot with predefined questions and AI-powered responses
- * for helping users navigate and understand the farm monitoring system
+ * Interactive chatbot with predefined questions for helping users
+ * navigate and understand the farm monitoring system
+ * Click-based interaction - no text input required
  */
 
-// Predefined questions and responses for the IoT farm monitoring system
+// Predefined questions and responses for the Eco-Farm monitoring system
 $chatbotQuestions = [
+    // Monitoring Category
     [
         'id' => 'sensor_data',
         'question' => 'How do I check my sensor readings?',
         'category' => 'monitoring',
         'icon' => 'fas fa-thermometer-half',
-        'response' => 'To check your sensor readings, go to the <strong>Sensors</strong> page from the navigation menu. There you can view real-time temperature, humidity, soil moisture, and light levels. You can also set up alerts for specific thresholds and view historical data trends.'
+        'response' => 'Go to the <strong>Sensors</strong> page from the navigation menu. You\'ll see real-time readings for temperature, humidity, soil moisture, and light levels. The dashboard also shows a quick overview of all sensor statuses with color-coded indicators.'
     ],
+    [
+        'id' => 'dashboard_overview',
+        'question' => 'What can I see on the Dashboard?',
+        'category' => 'monitoring',
+        'icon' => 'fas fa-tachometer-alt',
+        'response' => 'The <strong>Dashboard</strong> provides a complete overview of your farm: current sensor readings, recent pest detections, plant health status, system alerts, and quick access charts. It\'s your central hub for monitoring everything at a glance.'
+    ],
+    [
+        'id' => 'real_time_data',
+        'question' => 'Is the sensor data real-time?',
+        'category' => 'monitoring',
+        'icon' => 'fas fa-sync-alt',
+        'response' => 'Yes! The system syncs sensor data automatically. Arduino sensors push readings every few seconds, and the dashboard updates in real-time. You can also click <strong>Force Refresh</strong> to get the latest readings instantly.'
+    ],
+    [
+        'id' => 'sensor_history',
+        'question' => 'How do I view sensor history?',
+        'category' => 'monitoring',
+        'icon' => 'fas fa-history',
+        'response' => 'Visit the <strong>Sensor Readings Log</strong> page to view historical data. You can filter by date range, sensor type, and export the data. The <strong>Data Analytics</strong> page also shows trends and patterns over time.'
+    ],
+    
+    // Pest Detection Category
     [
         'id' => 'pest_detection',
         'question' => 'How does pest detection work?',
-        'category' => 'monitoring',
+        'category' => 'pest',
         'icon' => 'fas fa-bug',
-        'response' => 'Our AI-powered pest detection system uses computer vision to analyze images from your field cameras. Visit the <strong>Pest Detection</strong> page to see detected pests, confidence levels, and recommended actions. The system automatically alerts you when pests are detected above threshold levels.'
+        'response' => 'Our system uses <strong>YOLO AI</strong> (You Only Look Once) to analyze camera images and detect pests in real-time. When pests are detected, you\'ll see them on the <strong>Pest Detection</strong> page with confidence levels, severity ratings, and recommended actions.'
     ],
     [
-        'id' => 'camera_setup',
-        'question' => 'How do I set up cameras?',
-        'category' => 'setup',
-        'icon' => 'fas fa-video',
-        'response' => 'Camera setup is available in the <strong>Camera Management</strong> section. You can add new cameras, configure detection zones, set recording schedules, and adjust AI detection sensitivity. Make sure your cameras are connected to the same network as your monitoring system.'
+        'id' => 'yolo_service',
+        'question' => 'How do I start the YOLO detection service?',
+        'category' => 'pest',
+        'icon' => 'fas fa-play-circle',
+        'response' => 'Go to <strong>YOLO Service Control</strong> or run <strong>start_yolo_service.bat</strong> from your project folder. The service will start analyzing camera feeds for pests. You can monitor its status and view detection results on the Pest Detection page.'
     ],
     [
-        'id' => 'alerts',
-        'question' => 'How do I manage notifications?',
-        'category' => 'alerts',
+        'id' => 'pest_severity',
+        'question' => 'What do pest severity levels mean?',
+        'category' => 'pest',
+        'icon' => 'fas fa-exclamation-circle',
+        'response' => 'Severity levels indicate threat urgency: <strong>Low</strong> (monitor situation), <strong>Medium</strong> (take preventive action), <strong>High</strong> (immediate intervention needed), <strong>Critical</strong> (severe infestation requiring urgent response). Configure thresholds in <strong>Pest Severity Config</strong>.'
+    ],
+    [
+        'id' => 'pest_config',
+        'question' => 'How do I configure pest detection settings?',
+        'category' => 'pest',
+        'icon' => 'fas fa-cog',
+        'response' => 'Visit <strong>Pest Config</strong> to adjust detection sensitivity, set alert thresholds, configure which pests to monitor, and customize notification preferences. You can also set up automatic actions when certain pests are detected.'
+    ],
+    
+    // Arduino & Hardware Category
+    [
+        'id' => 'arduino_setup',
+        'question' => 'How do I connect Arduino sensors?',
+        'category' => 'hardware',
+        'icon' => 'fas fa-microchip',
+        'response' => 'Connect your Arduino with sensors (DHT11/22, soil moisture, LDR) via USB. Run <strong>start_arduino_bridge.bat</strong> to start the Python bridge that reads sensor data. The system will automatically sync readings to the database.'
+    ],
+    [
+        'id' => 'arduino_service',
+        'question' => 'How do I start Arduino monitoring?',
+        'category' => 'hardware',
+        'icon' => 'fas fa-power-off',
+        'response' => 'Use <strong>START_MONITORING.bat</strong> for local monitoring, or <strong>START_MONITORING_WITH_NGROK.bat</strong> for remote access. You can also control the service from the <strong>Arduino Service Control</strong> page in the web interface.'
+    ],
+    [
+        'id' => 'sensor_offline',
+        'question' => 'What if my sensors are offline?',
+        'category' => 'hardware',
+        'icon' => 'fas fa-exclamation-triangle',
+        'response' => 'Check these steps: 1) Verify Arduino USB connection, 2) Ensure the bridge service is running, 3) Check COM port settings, 4) Verify sensor wiring. The dashboard shows last communication time for each sensor to help diagnose issues.'
+    ],
+    [
+        'id' => 'ngrok_setup',
+        'question' => 'How do I access my farm remotely?',
+        'category' => 'hardware',
+        'icon' => 'fas fa-globe',
+        'response' => 'Use <strong>ngrok</strong> for remote access. Run <strong>START_MONITORING_WITH_NGROK.bat</strong> to create a secure tunnel. Check <strong>ARDUINO_NGROK_SETUP.md</strong> for detailed setup instructions. This lets you monitor your farm from anywhere!'
+    ],
+    
+    // Plants Category
+    [
+        'id' => 'plant_database',
+        'question' => 'How do I manage my plants?',
+        'category' => 'plants',
+        'icon' => 'fas fa-seedling',
+        'response' => 'Visit the <strong>Plant Database</strong> to add, edit, and track your plants. Each plant can have optimal temperature, humidity, and soil moisture ranges. The system will alert you when conditions fall outside these thresholds.'
+    ],
+    [
+        'id' => 'plant_thresholds',
+        'question' => 'How do plant threshold alerts work?',
+        'category' => 'plants',
         'icon' => 'fas fa-bell',
-        'response' => 'Visit the <strong>Notifications</strong> page to manage all your alerts. You can set up email notifications, SMS alerts, and in-app notifications for sensor thresholds, pest detections, system status, and maintenance reminders. Customize notification preferences for different alert types.'
+        'response' => 'Set optimal ranges for each plant in the Plant Database. The system continuously monitors sensor readings and triggers alerts when values exceed thresholds. View violations on the dashboard or <strong>Check Plant Thresholds</strong> page.'
     ],
+    [
+        'id' => 'plant_violations',
+        'question' => 'How do I reset plant violations?',
+        'category' => 'plants',
+        'icon' => 'fas fa-undo',
+        'response' => 'Go to <strong>Reset Plant Violations</strong> to clear violation history after addressing issues. This helps keep your alerts relevant and prevents notification fatigue from resolved problems.'
+    ],
+    
+    // Reports & Analytics Category
     [
         'id' => 'reports',
         'question' => 'How do I generate reports?',
         'category' => 'analytics',
         'icon' => 'fas fa-chart-bar',
-        'response' => 'The <strong>Reports</strong> section allows you to generate comprehensive analytics reports. You can create daily, weekly, or monthly reports covering sensor data trends, pest detection summaries, system performance, and crop health insights. Reports can be exported as PDF or CSV files.'
+        'response' => 'The <strong>Reports</strong> page lets you generate comprehensive analytics. Create daily, weekly, or monthly reports covering sensor trends, pest detections, and plant health. Export as PDF or CSV for record keeping.'
     ],
     [
-        'id' => 'troubleshooting',
-        'question' => 'What if my sensors are offline?',
-        'category' => 'troubleshooting',
-        'icon' => 'fas fa-exclamation-triangle',
-        'response' => 'If sensors appear offline, first check the <strong>Dashboard</strong> for system status. Verify power connections, network connectivity, and battery levels. The system will show last communication time for each sensor. Contact support if sensors remain offline after basic troubleshooting.'
+        'id' => 'data_analytics',
+        'question' => 'What analytics are available?',
+        'category' => 'analytics',
+        'icon' => 'fas fa-chart-line',
+        'response' => 'Visit <strong>Data Analytics</strong> for in-depth analysis: temperature/humidity trends, soil moisture patterns, pest detection frequency, correlation analysis, and predictive insights. Use filters to focus on specific time periods or sensors.'
     ],
     [
         'id' => 'data_export',
         'question' => 'Can I export my data?',
-        'category' => 'data',
+        'category' => 'analytics',
         'icon' => 'fas fa-download',
-        'response' => 'Yes! You can export sensor data, pest detection logs, and reports from multiple sections. Use the export buttons in the <strong>Sensors</strong> and <strong>Reports</strong> pages. Data can be exported in CSV, Excel, or PDF formats for further analysis or record keeping.'
+        'response' => 'Yes! Export sensor data, pest logs, and reports from multiple pages. Use the export buttons in <strong>Sensors</strong>, <strong>Reports</strong>, and <strong>Data Analytics</strong>. Data can be exported as CSV, Excel, or PDF.'
     ],
+    
+    // Alerts & Notifications Category
+    [
+        'id' => 'notifications',
+        'question' => 'How do I manage notifications?',
+        'category' => 'alerts',
+        'icon' => 'fas fa-bell',
+        'response' => 'Visit the <strong>Notifications</strong> page to view all alerts and configure preferences. Set up email notifications, adjust alert thresholds, and customize which events trigger notifications. Mark alerts as read or dismiss them.'
+    ],
+    [
+        'id' => 'alert_types',
+        'question' => 'What types of alerts are there?',
+        'category' => 'alerts',
+        'icon' => 'fas fa-exclamation',
+        'response' => 'The system sends alerts for: <strong>Sensor thresholds</strong> (temp, humidity, moisture), <strong>Pest detections</strong> (with severity), <strong>System status</strong> (offline sensors, service issues), and <strong>Plant health</strong> (threshold violations).'
+    ],
+    
+    // Account & Settings Category
     [
         'id' => 'user_roles',
         'question' => 'What are the different user roles?',
-        'category' => 'users',
+        'category' => 'account',
         'icon' => 'fas fa-users',
-        'response' => 'The system has three user roles: <strong>Admin</strong> (full system access), <strong>Farmer</strong> (monitoring and management), and <strong>Student</strong> (read-only access for learning). Admins can manage users, farmers can configure sensors and cameras, while students can view data and reports.'
+        'response' => 'Three roles exist: <strong>Admin</strong> (full system access, user management), <strong>Farmer</strong> (monitoring, configuration, reports), and <strong>Student</strong> (read-only access for learning). Admins can manage users in <strong>User Management</strong>.'
+    ],
+    [
+        'id' => 'profile_settings',
+        'question' => 'How do I update my profile?',
+        'category' => 'account',
+        'icon' => 'fas fa-user-cog',
+        'response' => 'Go to <strong>Profile</strong> to update your personal information, change password, and set notification preferences. You can also upload a profile picture and configure your dashboard layout.'
+    ],
+    [
+        'id' => 'system_settings',
+        'question' => 'Where are system settings?',
+        'category' => 'account',
+        'icon' => 'fas fa-cogs',
+        'response' => 'Access <strong>Settings</strong> to configure system-wide options: sensor sync intervals, default thresholds, display preferences, timezone, and integration settings. Admin users have access to additional configuration options.'
+    ],
+    
+    // Help & Learning Category
+    [
+        'id' => 'learning_resources',
+        'question' => 'Where can I learn more about farming?',
+        'category' => 'help',
+        'icon' => 'fas fa-graduation-cap',
+        'response' => 'Visit <strong>Learning Resources</strong> for educational content about IoT farming, sensor technology, pest management, and sustainable agriculture. Great for students and anyone wanting to deepen their knowledge!'
+    ],
+    [
+        'id' => 'help_page',
+        'question' => 'Where can I get more help?',
+        'category' => 'help',
+        'icon' => 'fas fa-question-circle',
+        'response' => 'Check the <strong>Help</strong> page for detailed documentation, FAQs, and troubleshooting guides. You can also find setup instructions for Arduino, YOLO service, and ngrok remote access.'
+    ],
+    [
+        'id' => 'troubleshooting',
+        'question' => 'How do I troubleshoot issues?',
+        'category' => 'help',
+        'icon' => 'fas fa-wrench',
+        'response' => 'Start with the <strong>Dashboard</strong> to check system status. View <strong>Logs</strong> for error details. Common fixes: restart services, check connections, verify configurations. The Help page has specific troubleshooting guides.'
     ]
 ];
 
@@ -91,6 +233,20 @@ function getChatbotResponse($questions, $questionId)
         }
     }
     return null;
+}
+
+/**
+ * Get unique categories
+ */
+function getChatbotCategories($questions)
+{
+    $categories = [];
+    foreach ($questions as $question) {
+        if (!in_array($question['category'], $categories)) {
+            $categories[] = $question['category'];
+        }
+    }
+    return $categories;
 }
 ?>
 
@@ -120,10 +276,10 @@ function getChatbotResponse($questions, $questionId)
                         <div class="absolute -bottom-1 -right-1 w-4 h-4 bg-green-400 rounded-full border-2 border-white"></div>
                     </div>
                     <div>
-                        <h3 class="font-semibold text-lg">Farm Assistant</h3>
+                        <h3 class="font-semibold text-lg">Eco-Farm Assistant</h3>
                         <p class="text-green-100 text-sm flex items-center">
                             <span class="w-2 h-2 bg-green-300 rounded-full mr-2 animate-pulse"></span>
-                            Online now
+                            Click a question to get help
                         </p>
                     </div>
                 </div>
@@ -146,7 +302,7 @@ function getChatbotResponse($questions, $questionId)
                     <div class="flex-1">
                         <div class="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-md p-3 shadow-sm border border-gray-200 dark:border-gray-700">
                             <p class="text-sm text-gray-800 dark:text-gray-200">
-                                👋 Hi! I'm your Farm Assistant. I can help you with:
+                                👋 Hi! I'm your Eco-Farm Assistant. Click any question below to get instant help with your farm monitoring system!
                             </p>
                         </div>
                         <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-3">
@@ -155,23 +311,30 @@ function getChatbotResponse($questions, $questionId)
                     </div>
                 </div>
 
-                <!-- Quick Action Buttons -->
+                <!-- Quick Action Buttons - Show first 4 popular questions -->
                 <div id="quick-actions" class="flex flex-wrap gap-2 ml-11 animate-fade-in" style="animation-delay: 0.2s;">
-                    <?php foreach (array_slice($chatbotQuestions, 0, 4) as $question): ?>
+                    <?php 
+                    $popularQuestions = ['sensor_data', 'pest_detection', 'arduino_setup', 'dashboard_overview'];
+                    foreach ($chatbotQuestions as $question): 
+                        if (in_array($question['id'], $popularQuestions)):
+                    ?>
                         <button onclick="askQuestion('<?php echo $question['id']; ?>', '<?php echo htmlspecialchars($question['question'], ENT_QUOTES); ?>')"
                             class="quick-action-btn bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:border-green-300 rounded-full px-3 py-2 text-xs text-gray-700 dark:text-gray-300 hover:text-green-700 dark:hover:text-green-300 transition-all duration-200 flex items-center space-x-2">
                             <i class="<?php echo $question['icon']; ?> text-xs"></i>
                             <span><?php echo htmlspecialchars($question['question']); ?></span>
                         </button>
-                    <?php endforeach; ?>
+                    <?php 
+                        endif;
+                    endforeach; 
+                    ?>
                 </div>
 
                 <!-- More Options Button -->
                 <div class="ml-11 animate-fade-in" style="animation-delay: 0.4s;">
                     <button onclick="showAllQuestions()"
                         class="bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white rounded-full px-4 py-2 text-xs font-medium transition-all duration-200 flex items-center space-x-2 shadow-sm hover:shadow-md">
-                        <i class="fas fa-ellipsis-h text-xs"></i>
-                        <span>More help topics</span>
+                        <i class="fas fa-list text-xs"></i>
+                        <span>Browse all topics (<?php echo count($chatbotQuestions); ?> questions)</span>
                     </button>
                 </div>
             </div>
@@ -180,56 +343,76 @@ function getChatbotResponse($questions, $questionId)
             <div id="all-questions-modal" class="hidden absolute inset-0 bg-white dark:bg-gray-800 z-10">
                 <div class="flex flex-col h-full">
                     <!-- Modal Header -->
-                    <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-                        <h4 class="font-semibold text-gray-900 dark:text-white">Help Topics</h4>
+                    <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-green-500 to-green-600 text-white">
+                        <h4 class="font-semibold">Help Topics</h4>
                         <button onclick="hideAllQuestions()"
-                            class="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200">
+                            class="text-white/80 hover:text-white p-1 rounded-full hover:bg-white/10">
                             <i class="fas fa-times"></i>
                         </button>
                     </div>
 
                     <!-- Category Filters -->
-                    <div class="p-4 border-b border-gray-200 dark:border-gray-700">
+                    <div class="p-3 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900">
                         <div class="flex flex-wrap gap-2">
                             <button onclick="filterQuestions('all')"
-                                class="category-filter active px-3 py-1 text-xs rounded-full bg-green-100 text-green-700 hover:bg-green-200 transition-colors duration-200">
+                                class="category-filter active px-3 py-1.5 text-xs rounded-full bg-green-500 text-white transition-colors duration-200">
                                 All
                             </button>
                             <button onclick="filterQuestions('monitoring')"
-                                class="category-filter px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-200">
-                                Monitoring
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-chart-line mr-1"></i>Monitoring
                             </button>
-                            <button onclick="filterQuestions('setup')"
-                                class="category-filter px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-200">
-                                Setup
+                            <button onclick="filterQuestions('pest')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-bug mr-1"></i>Pest Detection
+                            </button>
+                            <button onclick="filterQuestions('hardware')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-microchip mr-1"></i>Hardware
+                            </button>
+                            <button onclick="filterQuestions('plants')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-seedling mr-1"></i>Plants
+                            </button>
+                            <button onclick="filterQuestions('analytics')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-chart-bar mr-1"></i>Analytics
                             </button>
                             <button onclick="filterQuestions('alerts')"
-                                class="category-filter px-3 py-1 text-xs rounded-full bg-gray-100 text-gray-700 hover:bg-gray-200 transition-colors duration-200">
-                                Alerts
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-bell mr-1"></i>Alerts
+                            </button>
+                            <button onclick="filterQuestions('account')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-user mr-1"></i>Account
+                            </button>
+                            <button onclick="filterQuestions('help')"
+                                class="category-filter px-3 py-1.5 text-xs rounded-full bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-green-100 dark:hover:bg-green-900 transition-colors duration-200">
+                                <i class="fas fa-question-circle mr-1"></i>Help
                             </button>
                         </div>
                     </div>
 
                     <!-- Questions List -->
-                    <div class="flex-1 overflow-y-auto p-4">
+                    <div class="flex-1 overflow-y-auto p-3">
                         <div class="space-y-2" id="questions-container">
                             <?php foreach ($chatbotQuestions as $question): ?>
                                 <button onclick="askQuestion('<?php echo $question['id']; ?>', '<?php echo htmlspecialchars($question['question'], ENT_QUOTES); ?>')"
-                                    class="question-item w-full text-left p-3 rounded-lg border border-gray-200 dark:border-gray-600 hover:border-green-300 hover:bg-green-50 dark:hover:bg-gray-700 transition-all duration-200 group"
+                                    class="question-item w-full text-left p-3 rounded-xl border border-gray-200 dark:border-gray-600 hover:border-green-400 hover:bg-green-50 dark:hover:bg-gray-700 transition-all duration-200 group"
                                     data-category="<?php echo $question['category']; ?>">
-                                    <div class="flex items-start space-x-3">
-                                        <div class="flex-shrink-0 w-8 h-8 bg-green-100 dark:bg-green-900 rounded-lg flex items-center justify-center group-hover:bg-green-200 dark:group-hover:bg-green-800 transition-colors duration-200">
-                                            <i class="<?php echo $question['icon']; ?> text-green-600 dark:text-green-400 text-sm"></i>
+                                    <div class="flex items-center space-x-3">
+                                        <div class="flex-shrink-0 w-10 h-10 bg-green-100 dark:bg-green-900 rounded-xl flex items-center justify-center group-hover:bg-green-200 dark:group-hover:bg-green-800 transition-colors duration-200">
+                                            <i class="<?php echo $question['icon']; ?> text-green-600 dark:text-green-400"></i>
                                         </div>
                                         <div class="flex-1 min-w-0">
                                             <p class="text-sm font-medium text-gray-900 dark:text-white group-hover:text-green-700 dark:group-hover:text-green-300 transition-colors duration-200">
                                                 <?php echo htmlspecialchars($question['question']); ?>
                                             </p>
-                                            <p class="text-xs text-gray-500 dark:text-gray-400 capitalize">
+                                            <p class="text-xs text-gray-500 dark:text-gray-400 capitalize mt-0.5">
                                                 <?php echo $question['category']; ?>
                                             </p>
                                         </div>
-                                        <i class="fas fa-chevron-right text-gray-400 text-xs group-hover:text-green-500 transition-colors duration-200"></i>
+                                        <i class="fas fa-chevron-right text-gray-400 text-sm group-hover:text-green-500 group-hover:translate-x-1 transition-all duration-200"></i>
                                     </div>
                                 </button>
                             <?php endforeach; ?>
@@ -254,39 +437,24 @@ function getChatbotResponse($questions, $questionId)
                 </div>
             </div>
 
-            <!-- Input Section -->
-            <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
-                <div class="flex items-end space-x-3">
-                    <div class="flex-1">
-                        <input type="text"
-                            id="chatbot-input"
-                            placeholder="Ask me anything about your farm..."
-                            class="w-full px-4 py-3 text-sm border border-gray-300 dark:border-gray-600 rounded-2xl focus:outline-none focus:ring-2 focus:ring-green-500 focus:border-green-500 dark:bg-gray-700 dark:text-white resize-none"
-                            onkeypress="handleChatbotInput(event)">
-                    </div>
-                    <button onclick="sendChatbotMessage()"
-                        id="send-button"
-                        class="bg-green-500 hover:bg-green-600 disabled:bg-gray-300 text-white rounded-full p-3 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-green-500 transform hover:scale-105 active:scale-95">
-                        <i class="fas fa-paper-plane text-sm"></i>
-                    </button>
-                </div>
-                <div class="flex items-center justify-between mt-2">
-                    <p class="text-xs text-gray-500 dark:text-gray-400">
-                        <i class="fas fa-lightbulb mr-1"></i>
-                        Try asking about sensors, pests, or reports
+            <!-- Bottom Bar - Simplified without input -->
+            <div class="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
+                <div class="flex items-center justify-between">
+                    <p class="text-xs text-gray-500 dark:text-gray-400 flex items-center">
+                        <i class="fas fa-lightbulb text-yellow-500 mr-2"></i>
+                        Click any question above for instant help
                     </p>
-                    <div class="flex items-center space-x-2">
-                        <button onclick="clearChat()"
-                            class="text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 transition-colors duration-200">
-                            <i class="fas fa-trash mr-1"></i>
-                            Clear
-                        </button>
-                    </div>
+                    <button onclick="clearChat()"
+                        class="text-xs text-gray-500 hover:text-red-500 dark:text-gray-400 dark:hover:text-red-400 transition-colors duration-200 flex items-center space-x-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                        <i class="fas fa-redo"></i>
+                        <span>Reset</span>
+                    </button>
                 </div>
             </div>
         </div>
     </div>
 </div>
+
 
 <!-- Chatbot JavaScript -->
 <script>
@@ -314,11 +482,6 @@ function getChatbotResponse($questions, $questionId)
             if (notificationDot) {
                 notificationDot.remove();
             }
-
-            // Focus on input
-            setTimeout(() => {
-                document.getElementById('chatbot-input').focus();
-            }, 300);
         } else {
             panel.classList.add('hidden');
             button.querySelector('.fas').className = 'fas fa-comments text-xl';
@@ -352,12 +515,12 @@ function getChatbotResponse($questions, $questionId)
 
         // Update filter buttons
         filters.forEach(filter => {
-            filter.classList.remove('active', 'bg-green-100', 'text-green-700');
-            filter.classList.add('bg-gray-100', 'text-gray-700');
+            filter.classList.remove('active', 'bg-green-500', 'text-white');
+            filter.classList.add('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-300');
         });
 
-        event.target.classList.remove('bg-gray-100', 'text-gray-700');
-        event.target.classList.add('active', 'bg-green-100', 'text-green-700');
+        event.target.classList.remove('bg-gray-200', 'dark:bg-gray-700', 'text-gray-700', 'dark:text-gray-300');
+        event.target.classList.add('active', 'bg-green-500', 'text-white');
 
         // Filter questions
         questions.forEach(question => {
@@ -383,6 +546,12 @@ function getChatbotResponse($questions, $questionId)
             quickActions.style.display = 'none';
         }
 
+        // Hide "browse all" button after first question
+        const browseBtn = document.querySelector('[onclick="showAllQuestions()"]');
+        if (browseBtn && browseBtn.closest('.ml-11')) {
+            browseBtn.closest('.ml-11').style.display = 'none';
+        }
+
         // Hide all questions modal if open
         hideAllQuestions();
 
@@ -394,9 +563,9 @@ function getChatbotResponse($questions, $questionId)
             const question = chatbotQuestions.find(q => q.id === questionId);
             if (question) {
                 addBotMessage(question.response, question.icon);
-                addQuickActions(questionId);
+                addRelatedQuestions(questionId);
             }
-        }, 1500);
+        }, 800 + Math.random() * 500);
     }
 
     /**
@@ -408,25 +577,20 @@ function getChatbotResponse($questions, $questionId)
         messageElement.className = 'flex items-start space-x-3 justify-end animate-fade-in';
 
         messageElement.innerHTML = `
-        <div class="flex-1 flex justify-end">
-            <div class="bg-green-500 text-white rounded-2xl rounded-tr-md p-3 shadow-sm max-w-xs">
-                <p class="text-sm">${message}</p>
+            <div class="flex-1 flex justify-end">
+                <div class="bg-green-500 text-white rounded-2xl rounded-tr-md p-3 shadow-sm max-w-[80%]">
+                    <p class="text-sm">${escapeHtml(message)}</p>
+                </div>
             </div>
-        </div>
-        <div class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
-            <i class="fas fa-user text-white text-sm"></i>
-        </div>
-    `;
+            <div class="flex-shrink-0 w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                <i class="fas fa-user text-white text-sm"></i>
+            </div>
+        `;
 
         messagesContainer.appendChild(messageElement);
         scrollToBottom();
 
-        // Add to chat history
-        chatHistory.push({
-            type: 'user',
-            message: message,
-            timestamp: new Date()
-        });
+        chatHistory.push({ type: 'user', message: message, timestamp: new Date() });
     }
 
     /**
@@ -438,28 +602,23 @@ function getChatbotResponse($questions, $questionId)
         messageElement.className = 'flex items-start space-x-3 animate-fade-in';
 
         messageElement.innerHTML = `
-        <div class="flex-shrink-0 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
-            <i class="${icon} text-white text-sm"></i>
-        </div>
-        <div class="flex-1">
-            <div class="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-md p-3 shadow-sm border border-gray-200 dark:border-gray-700 max-w-xs">
-                <div class="text-sm text-gray-800 dark:text-gray-200">${message}</div>
+            <div class="flex-shrink-0 w-8 h-8 bg-green-500 rounded-full flex items-center justify-center">
+                <i class="${icon} text-white text-sm"></i>
             </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-3">
-                ${formatTime(new Date())}
+            <div class="flex-1">
+                <div class="bg-white dark:bg-gray-800 rounded-2xl rounded-tl-md p-3 shadow-sm border border-gray-200 dark:border-gray-700 max-w-[90%]">
+                    <div class="text-sm text-gray-800 dark:text-gray-200">${message}</div>
+                </div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 ml-3">
+                    ${formatTime(new Date())}
+                </div>
             </div>
-        </div>
-    `;
+        `;
 
         messagesContainer.appendChild(messageElement);
         scrollToBottom();
 
-        // Add to chat history
-        chatHistory.push({
-            type: 'bot',
-            message: message,
-            timestamp: new Date()
-        });
+        chatHistory.push({ type: 'bot', message: message, timestamp: new Date() });
     }
 
     /**
@@ -482,28 +641,47 @@ function getChatbotResponse($questions, $questionId)
     }
 
     /**
-     * Add quick action buttons after bot response
+     * Add related question buttons after bot response
      */
-    function addQuickActions(excludeQuestionId) {
+    function addRelatedQuestions(excludeQuestionId) {
         const messagesContainer = document.getElementById('chat-messages');
         const actionsElement = document.createElement('div');
-        actionsElement.className = 'ml-11 animate-fade-in';
+        actionsElement.className = 'ml-11 animate-fade-in mt-2';
 
-        // Get 2-3 related questions (excluding the current one)
-        const relatedQuestions = chatbotQuestions
+        // Get current question's category
+        const currentQuestion = chatbotQuestions.find(q => q.id === excludeQuestionId);
+        const currentCategory = currentQuestion ? currentQuestion.category : null;
+
+        // Get related questions (same category first, then others)
+        let relatedQuestions = chatbotQuestions
             .filter(q => q.id !== excludeQuestionId)
+            .sort((a, b) => {
+                if (a.category === currentCategory && b.category !== currentCategory) return -1;
+                if (b.category === currentCategory && a.category !== currentCategory) return 1;
+                return 0;
+            })
             .slice(0, 3);
 
-        let actionsHTML = '<div class="flex flex-wrap gap-2">';
+        let actionsHTML = '<p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Related questions:</p><div class="flex flex-wrap gap-2">';
         relatedQuestions.forEach(question => {
             actionsHTML += `
-            <button onclick="askQuestion('${question.id}', '${question.question.replace(/'/g, "\\'")}')"
-                    class="bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:border-green-300 rounded-full px-3 py-1 text-xs text-gray-700 dark:text-gray-300 hover:text-green-700 dark:hover:text-green-300 transition-all duration-200">
-                ${question.question}
-            </button>
-        `;
+                <button onclick="askQuestion('${question.id}', '${escapeHtml(question.question).replace(/'/g, "\\'")}')"
+                    class="bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-600 hover:border-green-400 rounded-full px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:text-green-700 dark:hover:text-green-300 transition-all duration-200 flex items-center space-x-1">
+                    <i class="${question.icon} text-xs opacity-60"></i>
+                    <span>${escapeHtml(question.question)}</span>
+                </button>
+            `;
         });
         actionsHTML += '</div>';
+
+        // Add "Browse all" button
+        actionsHTML += `
+            <button onclick="showAllQuestions()" 
+                class="mt-2 text-xs text-green-600 dark:text-green-400 hover:text-green-700 dark:hover:text-green-300 flex items-center space-x-1 transition-colors duration-200">
+                <i class="fas fa-th-list"></i>
+                <span>Browse all topics</span>
+            </button>
+        `;
 
         actionsElement.innerHTML = actionsHTML;
         messagesContainer.appendChild(actionsElement);
@@ -511,150 +689,26 @@ function getChatbotResponse($questions, $questionId)
     }
 
     /**
-     * Handle chatbot input keypress
-     */
-    function handleChatbotInput(event) {
-        if (event.key === 'Enter' && !event.shiftKey) {
-            event.preventDefault();
-            sendChatbotMessage();
-        }
-    }
-
-    /**
-     * Send chatbot message
-     */
-    function sendChatbotMessage() {
-        const input = document.getElementById('chatbot-input');
-        const message = input.value.trim();
-
-        if (!message || isTyping) return;
-
-        // Add user message
-        addUserMessage(message);
-        input.value = '';
-
-        // Hide quick actions if visible
-        const quickActions = document.getElementById('quick-actions');
-        if (quickActions) {
-            quickActions.style.display = 'none';
-        }
-
-        // Show typing indicator
-        showTypingIndicator();
-
-        // Process message and respond
-        setTimeout(() => {
-            hideTypingIndicator();
-            processUserMessage(message);
-        }, 1000 + Math.random() * 1000); // Random delay for realism
-    }
-
-    /**
-     * Process user message and generate response
-     */
-    function processUserMessage(message) {
-        const lowerMessage = message.toLowerCase();
-
-        // Enhanced keyword matching
-        const keywords = {
-            'sensor': 'sensor_data',
-            'temperature': 'sensor_data',
-            'humidity': 'sensor_data',
-            'moisture': 'sensor_data',
-            'pest': 'pest_detection',
-            'bug': 'pest_detection',
-            'insect': 'pest_detection',
-            'camera': 'camera_setup',
-            'video': 'camera_setup',
-            'setup': 'camera_setup',
-            'alert': 'alerts',
-            'notification': 'alerts',
-            'notify': 'alerts',
-            'report': 'reports',
-            'analytics': 'reports',
-            'export': 'data_export',
-            'download': 'data_export',
-            'offline': 'troubleshooting',
-            'problem': 'troubleshooting',
-            'issue': 'troubleshooting',
-            'user': 'user_roles',
-            'role': 'user_roles',
-            'permission': 'user_roles'
-        };
-
-        let matchedQuestionId = null;
-        let matchScore = 0;
-
-        // Find best matching question
-        for (const [keyword, questionId] of Object.entries(keywords)) {
-            if (lowerMessage.includes(keyword)) {
-                const score = keyword.length; // Longer keywords get higher priority
-                if (score > matchScore) {
-                    matchedQuestionId = questionId;
-                    matchScore = score;
-                }
-            }
-        }
-
-        if (matchedQuestionId) {
-            const question = chatbotQuestions.find(q => q.id === matchedQuestionId);
-            addBotMessage(question.response, question.icon);
-            addQuickActions(matchedQuestionId);
-        } else {
-            // Generate contextual response
-            let response = generateContextualResponse(message);
-            addBotMessage(response);
-
-            // Add suggestion to browse topics
-            setTimeout(() => {
-                const messagesContainer = document.getElementById('chat-messages');
-                const suggestionElement = document.createElement('div');
-                suggestionElement.className = 'ml-11 animate-fade-in';
-                suggestionElement.innerHTML = `
-                <button onclick="showAllQuestions()" 
-                        class="bg-blue-50 hover:bg-blue-100 dark:bg-blue-900 dark:hover:bg-blue-800 border border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300 rounded-full px-3 py-2 text-xs transition-all duration-200 flex items-center space-x-2">
-                    <i class="fas fa-list text-xs"></i>
-                    <span>Browse all help topics</span>
-                </button>
-            `;
-                messagesContainer.appendChild(suggestionElement);
-                scrollToBottom();
-            }, 500);
-        }
-    }
-
-    /**
-     * Generate contextual response for unmatched queries
-     */
-    function generateContextualResponse(message) {
-        const responses = [
-            "I understand you're asking about \"" + message + "\". While I don't have a specific answer for that, I can help you with sensor monitoring, pest detection, camera setup, and more!",
-            "That's an interesting question about \"" + message + "\". Let me suggest some related topics that might help you.",
-            "I'm not sure about \"" + message + "\" specifically, but I have lots of information about farm monitoring systems. What would you like to know?",
-            "Thanks for asking about \"" + message + "\". I specialize in helping with IoT farm monitoring. Is there something specific about sensors, cameras, or reports you'd like to know?"
-        ];
-
-        return responses[Math.floor(Math.random() * responses.length)];
-    }
-
-    /**
-     * Clear chat history
+     * Clear chat history and reset to initial state
      */
     function clearChat() {
         const messagesContainer = document.getElementById('chat-messages');
 
-        // Keep only the welcome message and initial quick actions
-        const children = Array.from(messagesContainer.children);
-        children.forEach((child, index) => {
-            if (index > 2) { // Keep first 3 elements (welcome + quick actions + more button)
-                child.remove();
-            }
-        });
+        // Remove all children except first 3 (welcome message, quick actions, browse button)
+        while (messagesContainer.children.length > 3) {
+            messagesContainer.removeChild(messagesContainer.lastChild);
+        }
 
         // Show quick actions again
         const quickActions = document.getElementById('quick-actions');
         if (quickActions) {
             quickActions.style.display = 'flex';
+        }
+
+        // Show browse button again
+        const browseBtn = document.querySelector('[onclick="showAllQuestions()"]');
+        if (browseBtn && browseBtn.closest('.ml-11')) {
+            browseBtn.closest('.ml-11').style.display = 'block';
         }
 
         chatHistory = [];
@@ -674,41 +728,30 @@ function getChatbotResponse($questions, $questionId)
      * Format time for message timestamps
      */
     function formatTime(date) {
-        return date.toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit'
-        });
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
     /**
-     * Mark response as helpful
+     * Escape HTML to prevent XSS
      */
-    function markHelpful(questionId) {
-        // Simple feedback implementation
-        event.target.innerHTML = '<i class="fas fa-check mr-1"></i>Thanks!';
-        event.target.classList.remove('text-green-600', 'hover:text-green-700');
-        event.target.classList.add('text-gray-500');
-        event.target.disabled = true;
-
-        // You could send this feedback to your analytics system
-        console.log(`User found question ${questionId} helpful`);
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
-    // Auto-show chatbot on first visit (optional)
+    // Auto-show chatbot hint on first visit
     document.addEventListener('DOMContentLoaded', function() {
-        // Check if user has seen chatbot before
-        const hasSeenChatbot = localStorage.getItem('hasSeenChatbot');
+        const hasSeenChatbot = localStorage.getItem('hasSeenEcoFarmChatbot');
 
         if (!hasSeenChatbot) {
-            // Show a subtle animation to draw attention
             setTimeout(() => {
                 const button = document.getElementById('chatbot-toggle');
                 button.classList.add('animate-bounce-subtle');
 
-                // Stop animation after a few seconds
                 setTimeout(() => {
                     button.classList.remove('animate-bounce-subtle');
-                    localStorage.setItem('hasSeenChatbot', 'true');
+                    localStorage.setItem('hasSeenEcoFarmChatbot', 'true');
                 }, 3000);
             }, 2000);
         }
@@ -725,55 +768,17 @@ function getChatbotResponse($questions, $questionId)
     });
 </script>
 
-<!-- Enhanced CSS for chat interface -->
+<!-- Chatbot CSS -->
 <style>
-    /* Chat animations */
+    /* Animations */
     @keyframes bounceSubtle {
-
-        0%,
-        100% {
-            transform: translateY(0);
-        }
-
-        50% {
-            transform: translateY(-5px);
-        }
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-5px); }
     }
 
     @keyframes fadeIn {
-        from {
-            opacity: 0;
-            transform: translateY(10px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @keyframes slideInRight {
-        from {
-            opacity: 0;
-            transform: translateX(20px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateX(0);
-        }
-    }
-
-    @keyframes slideInLeft {
-        from {
-            opacity: 0;
-            transform: translateX(-20px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateX(0);
-        }
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
     .animate-bounce-subtle {
@@ -781,150 +786,49 @@ function getChatbotResponse($questions, $questionId)
     }
 
     .animate-fade-in {
-        animation: fadeIn 0.4s ease-out;
-    }
-
-    .animate-slide-in-right {
-        animation: slideInRight 0.3s ease-out;
-    }
-
-    .animate-slide-in-left {
-        animation: slideInLeft 0.3s ease-out;
-    }
-
-    /* Chat message styling */
-    .chat-message-user {
-        animation: slideInRight 0.3s ease-out;
-    }
-
-    .chat-message-bot {
-        animation: slideInLeft 0.3s ease-out;
-    }
-
-    /* Enhanced message bubbles */
-    .message-bubble {
-        position: relative;
-        word-wrap: break-word;
-        max-width: 85%;
-    }
-
-    .message-bubble::before {
-        content: '';
-        position: absolute;
-        width: 0;
-        height: 0;
-    }
-
-    /* User message bubble tail */
-    .user-bubble::before {
-        right: -8px;
-        top: 10px;
-        border-left: 8px solid #10b981;
-        border-top: 8px solid transparent;
-        border-bottom: 8px solid transparent;
-    }
-
-    /* Bot message bubble tail */
-    .bot-bubble::before {
-        left: -8px;
-        top: 10px;
-        border-right: 8px solid white;
-        border-top: 8px solid transparent;
-        border-bottom: 8px solid transparent;
-    }
-
-    .dark .bot-bubble::before {
-        border-right-color: rgb(31 41 55);
+        animation: fadeIn 0.3s ease-out;
     }
 
     /* Quick action buttons */
     .quick-action-btn {
         transition: all 0.2s ease;
-        backdrop-filter: blur(10px);
     }
 
     .quick-action-btn:hover {
-        transform: translateY(-1px);
+        transform: translateY(-2px);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
     }
 
-    /* Typing indicator animation */
-    .typing-dot {
-        animation: typing 1.4s infinite ease-in-out;
-    }
-
-    .typing-dot:nth-child(1) {
-        animation-delay: 0s;
-    }
-
-    .typing-dot:nth-child(2) {
-        animation-delay: 0.2s;
-    }
-
-    .typing-dot:nth-child(3) {
-        animation-delay: 0.4s;
-    }
-
-    @keyframes typing {
-
-        0%,
-        60%,
-        100% {
-            transform: translateY(0);
-            opacity: 0.4;
-        }
-
-        30% {
-            transform: translateY(-10px);
-            opacity: 1;
-        }
-    }
-
-    /* Scrollbar styling for chat */
-    #chat-messages::-webkit-scrollbar {
+    /* Scrollbar styling */
+    #chat-messages::-webkit-scrollbar,
+    #questions-container::-webkit-scrollbar {
         width: 4px;
     }
 
-    #chat-messages::-webkit-scrollbar-track {
+    #chat-messages::-webkit-scrollbar-track,
+    #questions-container::-webkit-scrollbar-track {
         background: transparent;
     }
 
-    #chat-messages::-webkit-scrollbar-thumb {
+    #chat-messages::-webkit-scrollbar-thumb,
+    #questions-container::-webkit-scrollbar-thumb {
         background: rgba(156, 163, 175, 0.5);
         border-radius: 2px;
     }
 
-    #chat-messages::-webkit-scrollbar-thumb:hover {
-        background: rgba(156, 163, 175, 0.7);
-    }
-
-    /* Enhanced input styling */
-    #chatbot-input {
+    /* Question item hover */
+    .question-item {
         transition: all 0.2s ease;
     }
 
-    #chatbot-input:focus {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(34, 197, 94, 0.15);
+    .question-item:hover {
+        transform: translateX(4px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
     }
 
-    /* Send button animation */
-    #send-button {
-        transition: all 0.2s ease;
-    }
-
-    #send-button:hover {
-        box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
-    }
-
-    #send-button:active {
-        transform: scale(0.95);
-    }
-
-    /* Category filter enhancements */
+    /* Category filter */
     .category-filter {
         transition: all 0.2s ease;
-        backdrop-filter: blur(10px);
     }
 
     .category-filter:hover {
@@ -932,138 +836,32 @@ function getChatbotResponse($questions, $questionId)
     }
 
     .category-filter.active {
-        box-shadow: 0 2px 8px rgba(34, 197, 94, 0.2);
+        box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3);
     }
 
-    /* Question item hover effects */
-    .question-item {
-        transition: all 0.2s ease;
-    }
-
-    .question-item:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-    }
-
-    /* Modal animations */
+    /* Modal animation */
     #all-questions-modal {
         animation: slideUp 0.3s ease-out;
     }
 
     @keyframes slideUp {
-        from {
-            opacity: 0;
-            transform: translateY(20px);
-        }
-
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Online status pulse */
-    .status-pulse {
-        animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-
-        0%,
-        100% {
-            opacity: 1;
-        }
-
-        50% {
-            opacity: 0.5;
-        }
-    }
-
-    /* Responsive adjustments */
+    /* Responsive */
     @media (max-width: 1024px) {
         #chatbot-panel {
             max-height: 70vh;
         }
-        
-        #chatbot-widget {
-            bottom: 1rem;
-            right: 1rem;
-        }
-
-        .message-bubble {
-            max-width: 80%;
-        }
-
-        .quick-action-btn {
-            font-size: 0.75rem;
-            padding: 0.5rem 0.75rem;
-        }
     }
 
-    @media (max-width: 640px) {
-        .quick-action-btn {
-            font-size: 0.7rem;
-            padding: 0.4rem 0.6rem;
-        }
-        
-        .message-bubble {
-            max-width: 75%;
-        }
-    }
-
-    /* Dark mode enhancements */
+    /* Dark mode */
     .dark #chatbot-panel {
         background: rgb(17 24 39);
-        border-color: rgb(55 65 81);
-    }
-
-    .dark .question-item {
-        border-color: rgb(55 65 81);
-        background: rgb(31 41 55);
     }
 
     .dark .question-item:hover {
-        border-color: rgb(34 197 94);
-        background: rgb(55 65 81);
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-    }
-
-    .dark .quick-action-btn {
-        background: rgb(31 41 55);
-        border-color: rgb(55 65 81);
-    }
-
-    .dark .quick-action-btn:hover {
-        background: rgb(55 65 81);
-        border-color: rgb(34 197 94);
-    }
-
-    /* Loading states */
-    .loading-message {
-        opacity: 0.7;
-        pointer-events: none;
-    }
-
-    /* Enhanced focus states */
-    .focus-ring:focus-visible {
-        outline: 2px solid rgb(34 197 94);
-        outline-offset: 2px;
-    }
-
-    /* Smooth transitions for all interactive elements */
-    * {
-        transition-property: color, background-color, border-color, transform, box-shadow, opacity;
-        transition-duration: 0.2s;
-        transition-timing-function: ease;
-    }
-
-    /* Prevent text selection on buttons */
-    button,
-    .quick-action-btn,
-    .category-filter {
-        user-select: none;
-        -webkit-user-select: none;
-        -moz-user-select: none;
-        -ms-user-select: none;
     }
 </style>

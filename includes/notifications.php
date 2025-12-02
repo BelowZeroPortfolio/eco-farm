@@ -250,11 +250,16 @@ function getSampleNotifications()
  */
 function getNotifications($limit = null, $unreadOnly = false)
 {
-    // Merge pest alerts, plant alerts, and sample notifications
+    // Get real pest alerts and plant alerts from database
     $pestAlerts = getPestAlertNotifications(20); // Get recent pest alerts
     $plantAlerts = getPlantAlertNotifications(20); // Get recent plant alerts
-    $sampleNotifications = getSampleNotifications();
-    $notifications = array_merge($pestAlerts, $plantAlerts, $sampleNotifications);
+    
+    // Only use sample notifications if there are NO real notifications (for demo purposes)
+    // Comment out or remove this line in production to never show sample data
+    // $sampleNotifications = (empty($pestAlerts) && empty($plantAlerts)) ? getSampleNotifications() : [];
+    
+    // Merge only real notifications (no sample/demo data)
+    $notifications = array_merge($pestAlerts, $plantAlerts);
 
     // Filter unread only if requested
     if ($unreadOnly) {
