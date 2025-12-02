@@ -32,20 +32,41 @@ function getSensorAnalytics($startDate, $endDate)
     try {
         $pdo = getDatabaseConnection();
         
-        // Get average sensor readings for the period
+        // Get average sensor readings for the period from sensorreadings table
+        // Returns data for temperature, humidity, and soil_moisture
         $stmt = $pdo->prepare("
             SELECT 
-                s.sensor_type,
-                AVG(sr.value) as avg_value,
-                MIN(sr.value) as min_value,
-                MAX(sr.value) as max_value,
+                'temperature' as sensor_type,
+                AVG(Temperature) as avg_value,
+                MIN(Temperature) as min_value,
+                MAX(Temperature) as max_value,
                 COUNT(*) as reading_count
-            FROM sensors s
-            JOIN sensor_readings sr ON s.id = sr.sensor_id
-            WHERE sr.recorded_at BETWEEN ? AND ?
-            GROUP BY s.sensor_type
+            FROM sensorreadings
+            WHERE ReadingTime BETWEEN ? AND ?
+            UNION ALL
+            SELECT 
+                'humidity' as sensor_type,
+                AVG(Humidity) as avg_value,
+                MIN(Humidity) as min_value,
+                MAX(Humidity) as max_value,
+                COUNT(*) as reading_count
+            FROM sensorreadings
+            WHERE ReadingTime BETWEEN ? AND ?
+            UNION ALL
+            SELECT 
+                'soil_moisture' as sensor_type,
+                AVG(SoilMoisture) as avg_value,
+                MIN(SoilMoisture) as min_value,
+                MAX(SoilMoisture) as max_value,
+                COUNT(*) as reading_count
+            FROM sensorreadings
+            WHERE ReadingTime BETWEEN ? AND ?
         ");
-        $stmt->execute([$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        $stmt->execute([
+            $startDate . ' 00:00:00', $endDate . ' 23:59:59',
+            $startDate . ' 00:00:00', $endDate . ' 23:59:59',
+            $startDate . ' 00:00:00', $endDate . ' 23:59:59'
+        ]);
         
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
@@ -62,18 +83,25 @@ function getSensorTrendData($startDate, $endDate, $sensorType)
     try {
         $pdo = getDatabaseConnection();
         
+        // Map sensor type to column name in sensorreadings table
+        $columnMap = [
+            'temperature' => 'Temperature',
+            'humidity' => 'Humidity',
+            'soil_moisture' => 'SoilMoisture'
+        ];
+        
+        $column = $columnMap[$sensorType] ?? 'Temperature';
+        
         $stmt = $pdo->prepare("
             SELECT 
-                DATE(sr.recorded_at) as date,
-                AVG(sr.value) as avg_value
-            FROM sensors s
-            JOIN sensor_readings sr ON s.id = sr.sensor_id
-            WHERE s.sensor_type = ?
-            AND sr.recorded_at BETWEEN ? AND ?
-            GROUP BY DATE(sr.recorded_at)
+                DATE(ReadingTime) as date,
+                AVG({$column}) as avg_value
+            FROM sensorreadings
+            WHERE ReadingTime BETWEEN ? AND ?
+            GROUP BY DATE(ReadingTime)
             ORDER BY date ASC
         ");
-        $stmt->execute([$sensorType, $startDate . ' 00:00:00', $endDate . ' 23:59:59']);
+        $stmt->execute([$startDate . ' 00:00:00', $endDate . ' 23:59:59']);
         
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {

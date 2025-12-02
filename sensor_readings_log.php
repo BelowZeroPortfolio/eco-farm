@@ -42,31 +42,61 @@ function getSensorReadingsLog($sensorFilter, $startDate, $endDate, $limit)
     try {
         $pdo = getDatabaseConnection();
         
+        // Build query from sensorreadings table - unpivot into separate rows
         $sql = "
-            SELECT 
-                sr.id,
-                sr.sensor_id,
-                s.sensor_name,
-                s.sensor_type,
-                s.location,
-                sr.value,
-                sr.unit,
-                sr.recorded_at,
-                s.alert_threshold_min,
-                s.alert_threshold_max
-            FROM sensor_readings sr
-            JOIN sensors s ON sr.sensor_id = s.id
-            WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
+            SELECT * FROM (
+                SELECT 
+                    ReadingID as id,
+                    30 as sensor_id,
+                    'Arduino Temperature Sensor' as sensor_name,
+                    'temperature' as sensor_type,
+                    'Farm Field' as location,
+                    Temperature as value,
+                    '°C' as unit,
+                    ReadingTime as recorded_at,
+                    20.00 as alert_threshold_min,
+                    28.00 as alert_threshold_max
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                UNION ALL
+                SELECT 
+                    ReadingID as id,
+                    31 as sensor_id,
+                    'Arduino Humidity Sensor' as sensor_name,
+                    'humidity' as sensor_type,
+                    'Farm Field' as location,
+                    Humidity as value,
+                    '%' as unit,
+                    ReadingTime as recorded_at,
+                    60.00 as alert_threshold_min,
+                    80.00 as alert_threshold_max
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                UNION ALL
+                SELECT 
+                    ReadingID as id,
+                    32 as sensor_id,
+                    'Arduino Soil Moisture Sensor' as sensor_name,
+                    'soil_moisture' as sensor_type,
+                    'Farm Field' as location,
+                    SoilMoisture as value,
+                    '%' as unit,
+                    ReadingTime as recorded_at,
+                    40.00 as alert_threshold_min,
+                    60.00 as alert_threshold_max
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+            ) combined
         ";
         
-        $params = [$startDate, $endDate];
+        $params = [$startDate, $endDate, $startDate, $endDate, $startDate, $endDate];
         
         if ($sensorFilter !== 'all') {
-            $sql .= " AND sr.sensor_id = ?";
+            $sql .= " WHERE sensor_id = ?";
             $params[] = $sensorFilter;
         }
         
-        $sql .= " ORDER BY sr.recorded_at DESC LIMIT ?";
+        $sql .= " ORDER BY recorded_at DESC LIMIT ?";
         $params[] = $limit;
         
         $stmt = $pdo->prepare($sql);
@@ -101,22 +131,35 @@ function getReadingStatistics($sensorFilter, $startDate, $endDate)
     try {
         $pdo = getDatabaseConnection();
         
+        // Get statistics from sensorreadings table
+        // Each row has 3 sensor values, so multiply count by 3 for total readings
         $sql = "
             SELECT 
-                COUNT(*) as total_readings,
-                COUNT(DISTINCT sr.sensor_id) as unique_sensors,
-                COUNT(DISTINCT DATE(sr.recorded_at)) as unique_days,
-                MIN(sr.recorded_at) as first_reading,
-                MAX(sr.recorded_at) as last_reading
-            FROM sensor_readings sr
-            WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
+                COUNT(*) * 3 as total_readings,
+                3 as unique_sensors,
+                COUNT(DISTINCT DATE(ReadingTime)) as unique_days,
+                MIN(ReadingTime) as first_reading,
+                MAX(ReadingTime) as last_reading
+            FROM sensorreadings
+            WHERE DATE(ReadingTime) BETWEEN ? AND ?
         ";
         
         $params = [$startDate, $endDate];
         
+        // Note: sensor filter is handled differently since all sensors are in one row
+        // For individual sensor stats, we'd need to adjust the count
         if ($sensorFilter !== 'all') {
-            $sql .= " AND sr.sensor_id = ?";
-            $params[] = $sensorFilter;
+            // When filtering by sensor, count is just the number of rows (not * 3)
+            $sql = "
+                SELECT 
+                    COUNT(*) as total_readings,
+                    1 as unique_sensors,
+                    COUNT(DISTINCT DATE(ReadingTime)) as unique_days,
+                    MIN(ReadingTime) as first_reading,
+                    MAX(ReadingTime) as last_reading
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+            ";
         }
         
         $stmt = $pdo->prepare($sql);

@@ -1463,25 +1463,55 @@ class ExportHandler
     {
         try {
             $pdo = getDatabaseConnection();
+            // Query sensorreadings table - unpivot into separate rows per sensor type
             $stmt = $pdo->prepare("
-                SELECT 
-                    s.sensor_name,
-                    s.sensor_type,
-                    s.location,
-                    AVG(sr.value) as avg_value,
-                    MIN(sr.value) as min_value,
-                    MAX(sr.value) as max_value,
-                    COUNT(sr.id) as reading_count,
-                    sr.unit,
-                    DATE(sr.recorded_at) as date
-                FROM sensors s
-                JOIN sensor_readings sr ON s.id = sr.sensor_id
-                WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
-                GROUP BY s.id, DATE(sr.recorded_at)
-                ORDER BY sr.recorded_at DESC, s.sensor_type, s.sensor_name
+                SELECT * FROM (
+                    SELECT 
+                        'Temperature Sensor' as sensor_name,
+                        'temperature' as sensor_type,
+                        'Farm Field' as location,
+                        AVG(Temperature) as avg_value,
+                        MIN(Temperature) as min_value,
+                        MAX(Temperature) as max_value,
+                        COUNT(*) as reading_count,
+                        '°C' as unit,
+                        DATE(ReadingTime) as date
+                    FROM sensorreadings
+                    WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                    GROUP BY DATE(ReadingTime)
+                    UNION ALL
+                    SELECT 
+                        'Humidity Sensor' as sensor_name,
+                        'humidity' as sensor_type,
+                        'Farm Field' as location,
+                        AVG(Humidity) as avg_value,
+                        MIN(Humidity) as min_value,
+                        MAX(Humidity) as max_value,
+                        COUNT(*) as reading_count,
+                        '%' as unit,
+                        DATE(ReadingTime) as date
+                    FROM sensorreadings
+                    WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                    GROUP BY DATE(ReadingTime)
+                    UNION ALL
+                    SELECT 
+                        'Soil Moisture Sensor' as sensor_name,
+                        'soil_moisture' as sensor_type,
+                        'Farm Field' as location,
+                        AVG(SoilMoisture) as avg_value,
+                        MIN(SoilMoisture) as min_value,
+                        MAX(SoilMoisture) as max_value,
+                        COUNT(*) as reading_count,
+                        '%' as unit,
+                        DATE(ReadingTime) as date
+                    FROM sensorreadings
+                    WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                    GROUP BY DATE(ReadingTime)
+                ) combined
+                ORDER BY date DESC, sensor_type
                 LIMIT ?
             ");
-            $stmt->execute([$startDate, $endDate, $maxRows]);
+            $stmt->execute([$startDate, $endDate, $startDate, $endDate, $startDate, $endDate, $maxRows]);
             return $stmt->fetchAll();
         } catch (Exception $e) {
             error_log("Failed to get sensor export data: " . $e->getMessage());
@@ -1709,23 +1739,46 @@ class ExportHandler
             $logs = [];
 
             if ($reportType === 'sensor') {
-                // Get sensor reading activities in sensors.php format
+                // Get sensor reading activities from sensorreadings table
                 $stmt = $pdo->prepare("
-                    SELECT 
-                        sr.recorded_at,
-                        s.sensor_name,
-                        s.sensor_type,
-                        sr.value,
-                        sr.unit,
-                        s.alert_threshold_min,
-                        s.alert_threshold_max
-                    FROM sensor_readings sr
-                    JOIN sensors s ON sr.sensor_id = s.id
-                    WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
-                    ORDER BY sr.recorded_at DESC
+                    SELECT * FROM (
+                        SELECT 
+                            ReadingTime as recorded_at,
+                            'Temperature Sensor' as sensor_name,
+                            'temperature' as sensor_type,
+                            Temperature as value,
+                            '°C' as unit,
+                            20.00 as alert_threshold_min,
+                            28.00 as alert_threshold_max
+                        FROM sensorreadings
+                        WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                        UNION ALL
+                        SELECT 
+                            ReadingTime as recorded_at,
+                            'Humidity Sensor' as sensor_name,
+                            'humidity' as sensor_type,
+                            Humidity as value,
+                            '%' as unit,
+                            60.00 as alert_threshold_min,
+                            80.00 as alert_threshold_max
+                        FROM sensorreadings
+                        WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                        UNION ALL
+                        SELECT 
+                            ReadingTime as recorded_at,
+                            'Soil Moisture Sensor' as sensor_name,
+                            'soil_moisture' as sensor_type,
+                            SoilMoisture as value,
+                            '%' as unit,
+                            40.00 as alert_threshold_min,
+                            60.00 as alert_threshold_max
+                        FROM sensorreadings
+                        WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                    ) combined
+                    ORDER BY recorded_at DESC
                     LIMIT ?
                 ");
-                $stmt->execute([$startDate, $endDate, $limit]);
+                $stmt->execute([$startDate, $endDate, $startDate, $endDate, $startDate, $endDate, $limit]);
                 $readings = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
                 // Format like sensors.php table

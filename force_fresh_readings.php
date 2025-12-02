@@ -17,32 +17,20 @@ try {
     // Step 1: Clear old readings (keep last 5 for each sensor type)
     echo "1. Cleaning old readings...\n";
     
-    $sensorTypes = ['temperature', 'humidity', 'soil_moisture'];
-    foreach ($sensorTypes as $type) {
-        // Get sensor ID
-        $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? AND sensor_name LIKE 'Arduino%'");
-        $stmt->execute([$type]);
-        $sensor = $stmt->fetch();
-        
-        if ($sensor) {
-            // Delete all but the last 5 readings for this sensor
-            $stmt = $pdo->prepare("
-                DELETE FROM sensor_readings 
-                WHERE sensor_id = ? 
-                AND id NOT IN (
-                    SELECT id FROM (
-                        SELECT id FROM sensor_readings 
-                        WHERE sensor_id = ? 
-                        ORDER BY recorded_at DESC 
-                        LIMIT 5
-                    ) as keep_readings
-                )
-            ");
-            $stmt->execute([$sensor['id'], $sensor['id']]);
-            $deleted = $stmt->rowCount();
-            echo "   {$type}: Deleted {$deleted} old readings\n";
-        }
-    }
+    // Delete old readings from sensorreadings table, keeping last 5
+    $stmt = $pdo->prepare("
+        DELETE FROM sensorreadings 
+        WHERE ReadingID NOT IN (
+            SELECT ReadingID FROM (
+                SELECT ReadingID FROM sensorreadings 
+                ORDER BY ReadingTime DESC 
+                LIMIT 5
+            ) as keep_readings
+        )
+    ");
+    $stmt->execute();
+    $deleted = $stmt->rowCount();
+    echo "   Deleted {$deleted} old readings from sensorreadings table\n";
     echo "\n";
     
     // Step 2: Set 5-second interval
@@ -52,24 +40,15 @@ try {
     
     // Step 3: Force immediate readings by updating last reading times
     echo "3. Resetting last reading timestamps...\n";
-    foreach ($sensorTypes as $type) {
-        $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? AND sensor_name LIKE 'Arduino%'");
-        $stmt->execute([$type]);
-        $sensor = $stmt->fetch();
-        
-        if ($sensor) {
-            // Update the most recent reading to be 10 seconds ago
-            $stmt = $pdo->prepare("
-                UPDATE sensor_readings 
-                SET recorded_at = DATE_SUB(NOW(), INTERVAL 10 SECOND)
-                WHERE sensor_id = ? 
-                ORDER BY recorded_at DESC 
-                LIMIT 1
-            ");
-            $stmt->execute([$sensor['id']]);
-            echo "   {$type}: Reset last reading timestamp\n";
-        }
-    }
+    // Update the most recent reading in sensorreadings to be 10 seconds ago
+    $stmt = $pdo->prepare("
+        UPDATE sensorreadings 
+        SET ReadingTime = DATE_SUB(NOW(), INTERVAL 10 SECOND)
+        ORDER BY ReadingTime DESC 
+        LIMIT 1
+    ");
+    $stmt->execute();
+    echo "   Reset last reading timestamp in sensorreadings table\n";
     echo "\n";
     
     // Step 4: Test immediate sync
@@ -92,23 +71,15 @@ try {
             echo "   ⚠️ No readings synced - checking why...\n";
             
             // Debug: Check what shouldLogReading is doing
-            foreach ($sensorTypes as $type) {
-                $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? AND sensor_name LIKE 'Arduino%'");
-                $stmt->execute([$type]);
-                $sensor = $stmt->fetch();
-                
-                if ($sensor) {
-                    $stmt = $pdo->prepare("SELECT MAX(recorded_at) as last_reading FROM sensor_readings WHERE sensor_id = ?");
-                    $stmt->execute([$sensor['id']]);
-                    $result = $stmt->fetch();
-                    
-                    if ($result && $result['last_reading']) {
-                        $lastReading = strtotime($result['last_reading']);
-                        $now = time();
-                        $secondsPassed = $now - $lastReading;
-                        echo "   {$type}: {$secondsPassed} seconds since last reading\n";
-                    }
-                }
+            $stmt = $pdo->prepare("SELECT MAX(ReadingTime) as last_reading FROM sensorreadings");
+            $stmt->execute();
+            $result = $stmt->fetch();
+            
+            if ($result && $result['last_reading']) {
+                $lastReading = strtotime($result['last_reading']);
+                $now = time();
+                $secondsPassed = $now - $lastReading;
+                echo "   sensorreadings: {$secondsPassed} seconds since last reading\n";
             }
         }
     }
@@ -117,23 +88,26 @@ try {
     // Step 5: Verify results
     echo "5. Verifying results...\n";
     $stmt = $pdo->query("
-        SELECT s.sensor_type, sr.value, sr.unit, sr.recorded_at,
-               TIMESTAMPDIFF(SECOND, sr.recorded_at, NOW()) as seconds_ago
-        FROM sensors s
-        JOIN sensor_readings sr ON s.id = sr.sensor_id
-        WHERE s.sensor_name LIKE 'Arduino%'
-        ORDER BY sr.recorded_at DESC
+        SELECT 
+            ReadingID,
+            Temperature,
+            Humidity,
+            SoilMoisture,
+            ReadingTime,
+            TIMESTAMPDIFF(SECOND, ReadingTime, NOW()) as seconds_ago
+        FROM sensorreadings
+        ORDER BY ReadingTime DESC
         LIMIT 5
     ");
     $recent = $stmt->fetchAll();
     
     if ($recent) {
-        echo "   Recent readings:\n";
+        echo "   Recent readings from sensorreadings:\n";
         foreach ($recent as $reading) {
-            echo sprintf("   - %s: %s%s (%d seconds ago)\n",
-                $reading['sensor_type'],
-                $reading['value'],
-                $reading['unit'],
+            echo sprintf("   - Temp: %s°C, Humidity: %s%%, Soil: %s%% (%d seconds ago)\n",
+                $reading['Temperature'],
+                $reading['Humidity'],
+                $reading['SoilMoisture'],
                 $reading['seconds_ago']
             );
         }

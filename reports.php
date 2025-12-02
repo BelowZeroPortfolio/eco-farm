@@ -147,27 +147,62 @@ function getSensorReport($startDate, $endDate)
 {
     try {
         $pdo = getDatabaseConnection();
+        
+        // Query sensorreadings table - unpivot the data into separate rows per sensor type
         $stmt = $pdo->prepare("
             SELECT 
-                s.sensor_name,
-                s.sensor_type,
-                s.location,
-                s.alert_threshold_min,
-                s.alert_threshold_max,
-                AVG(sr.value) as avg_value,
-                MIN(sr.value) as min_value,
-                MAX(sr.value) as max_value,
-                STDDEV(sr.value) as std_dev,
-                COUNT(sr.id) as reading_count,
-                sr.unit,
-                DATE(sr.recorded_at) as date
-            FROM sensors s
-            JOIN sensor_readings sr ON s.id = sr.sensor_id
-            WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
-            GROUP BY s.id, DATE(sr.recorded_at)
-            ORDER BY sr.recorded_at ASC, s.sensor_type, s.sensor_name
+                'Temperature Sensor' as sensor_name,
+                'temperature' as sensor_type,
+                'Farm Field' as location,
+                20.00 as alert_threshold_min,
+                28.00 as alert_threshold_max,
+                AVG(Temperature) as avg_value,
+                MIN(Temperature) as min_value,
+                MAX(Temperature) as max_value,
+                STDDEV(Temperature) as std_dev,
+                COUNT(*) as reading_count,
+                '°C' as unit,
+                DATE(ReadingTime) as date
+            FROM sensorreadings
+            WHERE DATE(ReadingTime) BETWEEN ? AND ?
+            GROUP BY DATE(ReadingTime)
+            UNION ALL
+            SELECT 
+                'Humidity Sensor' as sensor_name,
+                'humidity' as sensor_type,
+                'Farm Field' as location,
+                60.00 as alert_threshold_min,
+                80.00 as alert_threshold_max,
+                AVG(Humidity) as avg_value,
+                MIN(Humidity) as min_value,
+                MAX(Humidity) as max_value,
+                STDDEV(Humidity) as std_dev,
+                COUNT(*) as reading_count,
+                '%' as unit,
+                DATE(ReadingTime) as date
+            FROM sensorreadings
+            WHERE DATE(ReadingTime) BETWEEN ? AND ?
+            GROUP BY DATE(ReadingTime)
+            UNION ALL
+            SELECT 
+                'Soil Moisture Sensor' as sensor_name,
+                'soil_moisture' as sensor_type,
+                'Farm Field' as location,
+                40.00 as alert_threshold_min,
+                60.00 as alert_threshold_max,
+                AVG(SoilMoisture) as avg_value,
+                MIN(SoilMoisture) as min_value,
+                MAX(SoilMoisture) as max_value,
+                STDDEV(SoilMoisture) as std_dev,
+                COUNT(*) as reading_count,
+                '%' as unit,
+                DATE(ReadingTime) as date
+            FROM sensorreadings
+            WHERE DATE(ReadingTime) BETWEEN ? AND ?
+            GROUP BY DATE(ReadingTime)
+            ORDER BY date ASC, sensor_type
         ");
-        $stmt->execute([$startDate, $endDate]);
+        $stmt->execute([$startDate, $endDate, $startDate, $endDate, $startDate, $endDate]);
         $data = $stmt->fetchAll();
         
         // Get thresholds from database
@@ -760,15 +795,14 @@ function getReportSummary($startDate, $endDate)
     try {
         $pdo = getDatabaseConnection();
 
-        // Sensor statistics
+        // Sensor statistics from sensorreadings table
         $stmt = $pdo->prepare("
             SELECT 
-                COUNT(DISTINCT s.id) as total_sensors,
-                COUNT(sr.id) as total_readings,
-                COUNT(DISTINCT DATE(sr.recorded_at)) as active_days
-            FROM sensors s
-            LEFT JOIN sensor_readings sr ON s.id = sr.sensor_id
-            WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
+                3 as total_sensors,
+                COUNT(*) as total_readings,
+                COUNT(DISTINCT DATE(ReadingTime)) as active_days
+            FROM sensorreadings
+            WHERE DATE(ReadingTime) BETWEEN ? AND ?
         ");
         $stmt->execute([$startDate, $endDate]);
         $sensorStats = $stmt->fetch();
@@ -817,20 +851,37 @@ function getChartData($reportType, $startDate, $endDate)
         $pdo = getDatabaseConnection();
 
         if ($reportType === 'sensor') {
-            // Daily sensor averages
+            // Daily sensor averages from sensorreadings table
             $stmt = $pdo->prepare("
                 SELECT 
-                    DATE(sr.recorded_at) as date,
-                    s.sensor_type,
-                    AVG(sr.value) as avg_value,
-                    sr.unit
-                FROM sensors s
-                JOIN sensor_readings sr ON s.id = sr.sensor_id
-                WHERE DATE(sr.recorded_at) BETWEEN ? AND ?
-                GROUP BY DATE(sr.recorded_at), s.sensor_type, sr.unit
+                    DATE(ReadingTime) as date,
+                    'temperature' as sensor_type,
+                    AVG(Temperature) as avg_value,
+                    '°C' as unit
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                GROUP BY DATE(ReadingTime)
+                UNION ALL
+                SELECT 
+                    DATE(ReadingTime) as date,
+                    'humidity' as sensor_type,
+                    AVG(Humidity) as avg_value,
+                    '%' as unit
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                GROUP BY DATE(ReadingTime)
+                UNION ALL
+                SELECT 
+                    DATE(ReadingTime) as date,
+                    'soil_moisture' as sensor_type,
+                    AVG(SoilMoisture) as avg_value,
+                    '%' as unit
+                FROM sensorreadings
+                WHERE DATE(ReadingTime) BETWEEN ? AND ?
+                GROUP BY DATE(ReadingTime)
                 ORDER BY date ASC
             ");
-            $stmt->execute([$startDate, $endDate]);
+            $stmt->execute([$startDate, $endDate, $startDate, $endDate, $startDate, $endDate]);
             return $stmt->fetchAll();
         } else {
             // Daily pest alert counts

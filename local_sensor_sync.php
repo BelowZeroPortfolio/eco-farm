@@ -7,6 +7,9 @@
  * USAGE: php local_sensor_sync.php
  */
 
+// Set timezone to Philippines (UTC+8) - IMPORTANT for correct timestamps
+date_default_timezone_set('Asia/Manila');
+
 define('ARDUINO_BRIDGE_URL', 'http://127.0.0.1:5001/data');
 
 function colorLog($message, $type = 'info') {
@@ -55,71 +58,54 @@ function fetchArduinoData() {
     return $data['data'];
 }
 
-function saveToLocalDB($sensorType, $value, $unit) {
+/**
+ * Save ALL sensor readings to database in ONE row
+ * This ensures all 3 values are saved together, not separately
+ */
+function saveAllSensorsToLocalDB($sensorData) {
     require_once __DIR__ . '/config/database.php';
     $pdo = getDatabaseConnection();
     
-    $stmt = $pdo->prepare("SELECT id FROM sensors WHERE sensor_type = ? LIMIT 1");
-    $stmt->execute([$sensorType]);
-    $sensor = $stmt->fetch();
+    // Extract values from sensor data
+    $temperature = isset($sensorData['temperature']['value']) ? floatval($sensorData['temperature']['value']) : 0;
+    $humidity = isset($sensorData['humidity']['value']) ? floatval($sensorData['humidity']['value']) : 0;
+    $soilMoisture = isset($sensorData['soil_moisture']['value']) ? floatval($sensorData['soil_moisture']['value']) : 0;
     
-    if (!$sensor) {
-        $name = "Arduino " . ucfirst(str_replace('_', ' ', $sensorType));
-        $pdo->prepare("INSERT INTO sensors (sensor_name, sensor_type, location, status, created_at) VALUES (?, ?, 'Farm', 'online', NOW())")
-            ->execute([$name, $sensorType]);
-        $sensorId = $pdo->lastInsertId();
-    } else {
-        $sensorId = $sensor['id'];
-    }
+    // Get active plant ID
+    $plantId = getActivePlantId($pdo);
     
-    // Check if enough time has passed since last reading (respects interval setting)
-    if (!shouldLogReading($pdo, $sensorId)) {
-        return false; // Skip - interval not reached
-    }
+    // Use PHP date() to ensure correct Philippine timezone
+    $philippineTime = date('Y-m-d H:i:s');
     
-    $pdo->prepare("INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) VALUES (?, ?, ?, NOW())")
-        ->execute([$sensorId, $value, $unit]);
-    $pdo->prepare("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE id = ?")
-        ->execute([$sensorId]);
+    // Insert all sensor values in ONE row
+    $stmt = $pdo->prepare("
+        INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+        VALUES (?, ?, ?, ?, 0, ?)
+    ");
+    $stmt->execute([$plantId, $soilMoisture, $temperature, $humidity, $philippineTime]);
+    
+    // Update all sensor statuses
+    $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")
+        ->execute([$philippineTime]);
+    
     return true;
 }
 
 /**
- * Check if enough time has passed to log a new reading based on interval setting
+ * Get active plant ID from activeplant table
  */
-function shouldLogReading($pdo, $sensorId) {
+function getActivePlantId($pdo) {
     try {
-        // Get logging interval from settings (in minutes)
-        $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
-        $stmt->execute();
+        $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
         $result = $stmt->fetch();
-        $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
-        
-        // Get seconds since last reading using MySQL's time functions
-        $stmt = $pdo->prepare("
-            SELECT TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed
-            FROM sensor_readings 
-            WHERE sensor_id = ?
-        ");
-        $stmt->execute([$sensorId]);
-        $result = $stmt->fetch();
-        
-        // If no previous reading, allow logging
-        if (!$result || $result['seconds_passed'] === null) {
-            return true;
-        }
-        
-        $secondsPassed = intval($result['seconds_passed']);
-        $intervalSeconds = $intervalMinutes * 60;
-        
-        // Allow logging if interval has passed (with 1 second tolerance)
-        return $secondsPassed >= ($intervalSeconds - 1);
-        
+        return $result ? $result['SelectedPlantID'] : 1;
     } catch (Exception $e) {
-        colorLog("Interval check error: " . $e->getMessage(), 'warning');
-        return true; // Default to allowing on error
+        return 1; // Default to plant ID 1
     }
 }
+
+// Note: Interval checking is handled by the main loop's sleep($interval)
+// All sensors are saved together in one row per sync cycle
 
 function getUnit($type) {
     return ['temperature' => '°C', 'humidity' => '%', 'soil_moisture' => '%'][$type] ?? '';
@@ -128,15 +114,24 @@ function getUnit($type) {
 function syncData() {
     try {
         $data = fetchArduinoData();
-        $count = 0;
+        
+        // Check if we have any valid sensor data
+        $hasData = false;
         foreach ($data as $type => $info) {
             if (isset($info['value']) && $info['value'] !== null) {
-                saveToLocalDB($type, $info['value'], getUnit($type));
+                $hasData = true;
                 colorLog("✓ {$type}: {$info['value']}" . getUnit($type), 'success');
-                $count++;
             }
         }
-        colorLog("Saved {$count} readings to local DB", 'success');
+        
+        if ($hasData) {
+            // Save ALL sensors in ONE database row
+            saveAllSensorsToLocalDB($data);
+            colorLog("Saved all readings to local DB in single row", 'success');
+        } else {
+            colorLog("No sensor data available", 'warning');
+        }
+        
         return true;
     } catch (Exception $e) {
         colorLog("Error: " . $e->getMessage(), 'error');

@@ -18,8 +18,8 @@ try {
     if ($result['count'] > 0) {
         echo "Sample sensors already exist. Cleaning up old data...\n";
         
-        // Delete old readings and sensors
-        $pdo->exec("DELETE FROM sensor_readings WHERE sensor_id IN (SELECT id FROM sensors WHERE sensor_name LIKE 'Arduino%')");
+        // Delete old readings from sensorreadings table and sensors
+        $pdo->exec("DELETE FROM sensorreadings WHERE ReadingTime >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
         $pdo->exec("DELETE FROM sensors WHERE sensor_name LIKE 'Arduino%'");
         
         echo "Old data cleaned up.\n";
@@ -79,16 +79,32 @@ try {
         [$sensorIds['soil_moisture'], 50.0, '%', 'NOW()'] // Current - Optimal
     ];
     
-    foreach ($readings as $reading) {
+    // Get active plant ID (default to 1)
+    $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
+    $result = $stmt->fetch();
+    $plantId = $result ? $result['SelectedPlantID'] : 1;
+    
+    // Insert sample readings into sensorreadings table
+    // Group readings by time interval
+    $sampleReadings = [
+        ['SoilMoisture' => 48.5, 'Temperature' => 24.5, 'Humidity' => 68.2, 'time' => 'DATE_SUB(NOW(), INTERVAL 6 HOUR)'],
+        ['SoilMoisture' => 52.0, 'Temperature' => 25.2, 'Humidity' => 72.5, 'time' => 'DATE_SUB(NOW(), INTERVAL 5 HOUR)'],
+        ['SoilMoisture' => 50.5, 'Temperature' => 24.8, 'Humidity' => 70.0, 'time' => 'DATE_SUB(NOW(), INTERVAL 4 HOUR)'],
+        ['SoilMoisture' => 65.0, 'Temperature' => 32.0, 'Humidity' => 85.0, 'time' => 'DATE_SUB(NOW(), INTERVAL 3 HOUR)'], // Warning
+        ['SoilMoisture' => 35.0, 'Temperature' => 18.0, 'Humidity' => 55.0, 'time' => 'DATE_SUB(NOW(), INTERVAL 2 HOUR)'], // Warning Low
+        ['SoilMoisture' => 25.0, 'Temperature' => 38.0, 'Humidity' => 92.0, 'time' => 'DATE_SUB(NOW(), INTERVAL 1 HOUR)'], // Critical
+        ['SoilMoisture' => 50.0, 'Temperature' => 25.5, 'Humidity' => 70.5, 'time' => 'NOW()'] // Current - Optimal
+    ];
+    
+    foreach ($sampleReadings as $reading) {
         $stmt = $pdo->prepare("
-            INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) 
-            VALUES (?, ?, ?, {$reading[3]})
+            INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+            VALUES (?, ?, ?, ?, 0, {$reading['time']})
         ");
-        
-        $stmt->execute([$reading[0], $reading[1], $reading[2]]);
+        $stmt->execute([$plantId, $reading['SoilMoisture'], $reading['Temperature'], $reading['Humidity']]);
     }
     
-    echo "Inserted " . count($readings) . " sensor readings.\n";
+    echo "Inserted " . count($sampleReadings) . " sensor readings into sensorreadings table.\n";
     
     // Set default logging interval
     echo "Setting default logging interval...\n";
@@ -107,42 +123,59 @@ try {
     
     $stmt = $pdo->query("
         SELECT 
-            s.sensor_name,
-            s.sensor_type,
-            sr.value,
-            sr.unit,
+            'Arduino Temperature Sensor' as sensor_name,
+            'temperature' as sensor_type,
+            Temperature as value,
+            '°C' as unit,
             CASE 
-                WHEN s.sensor_type = 'temperature' THEN
-                    CASE 
-                        WHEN sr.value >= 20 AND sr.value <= 28 THEN 'OPTIMAL'
-                        WHEN sr.value > 34 OR sr.value < 14 THEN 'CRITICAL'
-                        ELSE 'WARNING'
-                    END
-                WHEN s.sensor_type = 'humidity' THEN
-                    CASE 
-                        WHEN sr.value >= 60 AND sr.value <= 80 THEN 'OPTIMAL'
-                        WHEN sr.value > 90 OR sr.value < 50 THEN 'CRITICAL'
-                        ELSE 'WARNING'
-                    END
-                WHEN s.sensor_type = 'soil_moisture' THEN
-                    CASE 
-                        WHEN sr.value >= 40 AND sr.value <= 60 THEN 'OPTIMAL'
-                        WHEN sr.value > 70 OR sr.value < 30 THEN 'CRITICAL'
-                        ELSE 'WARNING'
-                    END
+                WHEN Temperature >= 20 AND Temperature <= 28 THEN 'OPTIMAL'
+                WHEN Temperature > 34 OR Temperature < 14 THEN 'CRITICAL'
+                ELSE 'WARNING'
             END as Status,
-            sr.recorded_at
-        FROM sensors s
-        JOIN sensor_readings sr ON s.id = sr.sensor_id
-        WHERE sr.recorded_at = (
-            SELECT MAX(recorded_at) 
-            FROM sensor_readings 
-            WHERE sensor_id = s.id
-        )
-        ORDER BY s.sensor_type
+            ReadingTime as recorded_at
+        FROM sensorreadings
+        ORDER BY ReadingTime DESC
+        LIMIT 1
     ");
+    $tempReading = $stmt->fetch();
     
-    $latestReadings = $stmt->fetchAll();
+    $stmt = $pdo->query("
+        SELECT 
+            'Arduino Humidity Sensor' as sensor_name,
+            'humidity' as sensor_type,
+            Humidity as value,
+            '%' as unit,
+            CASE 
+                WHEN Humidity >= 60 AND Humidity <= 80 THEN 'OPTIMAL'
+                WHEN Humidity > 90 OR Humidity < 50 THEN 'CRITICAL'
+                ELSE 'WARNING'
+            END as Status,
+            ReadingTime as recorded_at
+        FROM sensorreadings
+        ORDER BY ReadingTime DESC
+        LIMIT 1
+    ");
+    $humidityReading = $stmt->fetch();
+    
+    $stmt = $pdo->query("
+        SELECT 
+            'Arduino Soil Moisture Sensor' as sensor_name,
+            'soil_moisture' as sensor_type,
+            SoilMoisture as value,
+            '%' as unit,
+            CASE 
+                WHEN SoilMoisture >= 40 AND SoilMoisture <= 60 THEN 'OPTIMAL'
+                WHEN SoilMoisture > 70 OR SoilMoisture < 30 THEN 'CRITICAL'
+                ELSE 'WARNING'
+            END as Status,
+            ReadingTime as recorded_at
+        FROM sensorreadings
+        ORDER BY ReadingTime DESC
+        LIMIT 1
+    ");
+    $soilReading = $stmt->fetch();
+    
+    $latestReadings = array_filter([$tempReading, $humidityReading, $soilReading]);
     
     echo "\nLatest sensor readings:\n";
     foreach ($latestReadings as $reading) {
@@ -150,14 +183,7 @@ try {
     }
     
     // Count total readings
-    $stmt = $pdo->query("
-        SELECT 
-            s.sensor_type,
-            COUNT(*) as reading_count
-        FROM sensors s
-        JOIN sensor_readings sr ON s.id = sr.sensor_id
-        GROUP BY s.sensor_type
-    ");
+    $stmt = $pdo->query("SELECT COUNT(*) as reading_count FROM sensorreadings");
     
     $counts = $stmt->fetchAll();
     

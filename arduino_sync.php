@@ -212,23 +212,29 @@ function getHistoricalSensorData($hours = 6) {
         $sensorTypes = ['temperature', 'humidity', 'soil_moisture'];
         $finalData = [];
         
+        // Map sensor type to column name in sensorreadings table
+        $columnMap = [
+            'temperature' => ['column' => 'Temperature', 'unit' => '°C'],
+            'humidity' => ['column' => 'Humidity', 'unit' => '%'],
+            'soil_moisture' => ['column' => 'SoilMoisture', 'unit' => '%']
+        ];
+        
         foreach ($sensorTypes as $type) {
-            // Get last 6 readings for this sensor (oldest to newest)
+            $config = $columnMap[$type] ?? ['column' => 'Temperature', 'unit' => '°C'];
+            
+            // Get last 6 readings for this sensor (oldest to newest) from sensorreadings table
             $stmt = $pdo->prepare("
                 SELECT value, unit, recorded_at,
                        DATE_FORMAT(recorded_at, '%H:%i') as time_label
                 FROM (
-                    SELECT sr.value, sr.unit, sr.recorded_at
-                    FROM sensor_readings sr
-                    JOIN sensors s ON sr.sensor_id = s.id
-                    WHERE s.sensor_type = ?
-                    AND s.sensor_name LIKE 'Arduino%'
-                    ORDER BY sr.recorded_at DESC
+                    SELECT {$config['column']} as value, '{$config['unit']}' as unit, ReadingTime as recorded_at
+                    FROM sensorreadings
+                    ORDER BY ReadingTime DESC
                     LIMIT 6
                 ) AS recent
                 ORDER BY recorded_at ASC
             ");
-            $stmt->execute([$type]);
+            $stmt->execute();
             $finalData[$type] = $stmt->fetchAll();
         }
         

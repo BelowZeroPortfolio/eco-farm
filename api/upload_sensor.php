@@ -108,25 +108,29 @@ try {
     $currentValues[$sensorType] = floatval($value);
     
     // Insert into sensorreadings table
+    // Use PHP date() instead of MySQL NOW() to ensure correct Philippine timezone
+    $philippineTime = date('Y-m-d H:i:s');
+    
     $stmt = $pdo->prepare("
         INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
-        VALUES (?, ?, ?, ?, 0, NOW())
+        VALUES (?, ?, ?, ?, 0, ?)
     ");
     
     $stmt->execute([
         $plantId,
         intval($currentValues['soil_moisture']),
         floatval($currentValues['temperature']),
-        intval($currentValues['humidity'])
+        intval($currentValues['humidity']),
+        $philippineTime
     ]);
     
     // Update sensor status in sensors table
     $updateStmt = $pdo->prepare("
         UPDATE sensors 
-        SET last_reading_at = NOW(), status = 'online' 
+        SET last_reading_at = ?, status = 'online' 
         WHERE id = ?
     ");
-    $updateStmt->execute([$sensorId]);
+    $updateStmt->execute([$philippineTime, $sensorId]);
     
     // Success response
     echo json_encode([
@@ -192,15 +196,18 @@ function handleBulkUpload()
         $soil = $soilMoisture !== null ? intval($soilMoisture) : 0;
         
         // Insert into sensorreadings table
+        // Use PHP date() instead of MySQL NOW() to ensure correct Philippine timezone
+        $philippineTime = date('Y-m-d H:i:s');
+        
         $stmt = $pdo->prepare("
             INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
-            VALUES (?, ?, ?, ?, 0, NOW())
+            VALUES (?, ?, ?, ?, 0, ?)
         ");
         
-        $stmt->execute([$plantId, $soil, $temp, $hum]);
+        $stmt->execute([$plantId, $soil, $temp, $hum, $philippineTime]);
         
         // Update all sensor statuses
-        $pdo->exec("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')");
+        $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")->execute([$philippineTime]);
         
         echo json_encode([
             'success' => true,
@@ -284,6 +291,7 @@ function getCurrentSensorValues($pdo, $plantId)
 
 /**
  * Check if enough time has passed to log a new reading based on interval setting
+ * Uses PHP time comparison to avoid MySQL timezone issues
  */
 function shouldLogReading($pdo)
 {
@@ -299,19 +307,20 @@ function shouldLogReading($pdo)
         $result = $stmt->fetch();
         $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
         
-        // Get seconds since last reading from sensorreadings table
-        $stmt = $pdo->query("
-            SELECT TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed
-            FROM sensorreadings
-        ");
+        // Get the last reading time from sensorreadings table
+        $stmt = $pdo->query("SELECT MAX(ReadingTime) as last_reading FROM sensorreadings");
         $result = $stmt->fetch();
         
         // If no previous reading, allow logging
-        if (!$result || $result['seconds_passed'] === null) {
+        if (!$result || !$result['last_reading']) {
             return true;
         }
         
-        $secondsPassed = intval($result['seconds_passed']);
+        // Calculate seconds passed using PHP (avoids MySQL timezone issues)
+        $lastReadingTime = strtotime($result['last_reading']);
+        $currentTime = time(); // PHP time in configured timezone (Asia/Manila)
+        $secondsPassed = $currentTime - $lastReadingTime;
+        
         $intervalSeconds = $intervalMinutes * 60;
         
         // Allow logging if interval has passed (with 1 second tolerance)

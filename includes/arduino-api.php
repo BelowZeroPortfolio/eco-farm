@@ -129,6 +129,7 @@ class ArduinoBridge
 
     /**
      * Store Arduino sensor reading in database with interval checking
+     * Now stores to sensorreadings table which has all sensors in one row
      */
     public function storeSensorReading($sensorType, $value, $unit = '%')
     {
@@ -150,7 +151,7 @@ class ArduinoBridge
 
             $pdo = getDatabaseConnection();
             
-            // Get or create sensor record
+            // Get or create sensor record (for status tracking)
             $sensorId = $this->getOrCreateSensor($sensorType);
             if (!$sensorId) {
                 throw new Exception("Failed to get sensor ID for {$sensorType}");
@@ -162,14 +163,43 @@ class ArduinoBridge
                 return false; // Skip logging, interval not reached
             }
 
-            // Insert reading
-            $stmt = $pdo->prepare("
-                INSERT INTO sensor_readings (sensor_id, value, unit, recorded_at) 
-                VALUES (?, ?, ?, NOW())
-            ");
+            // Get active plant ID (default to 1 if none set)
+            $plantId = $this->getActivePlantId($pdo);
             
-            if (!$stmt->execute([$sensorId, $value, $unit])) {
-                throw new Exception("Failed to insert sensor reading");
+            // Map sensor type to column name
+            $columnMap = [
+                'temperature' => 'Temperature',
+                'humidity' => 'Humidity',
+                'soil_moisture' => 'SoilMoisture'
+            ];
+            $column = $columnMap[$sensorType];
+            
+            // Check if there's a recent reading (within last minute) to update
+            $stmt = $pdo->prepare("
+                SELECT ReadingID FROM sensorreadings 
+                WHERE PlantID = ? AND ReadingTime >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)
+                ORDER BY ReadingTime DESC LIMIT 1
+            ");
+            $stmt->execute([$plantId]);
+            $existingReading = $stmt->fetch();
+            
+            // Use PHP date() to ensure correct Philippine timezone
+            $philippineTime = date('Y-m-d H:i:s');
+            
+            if ($existingReading) {
+                // Update existing reading
+                $stmt = $pdo->prepare("UPDATE sensorreadings SET {$column} = ? WHERE ReadingID = ?");
+                $stmt->execute([$value, $existingReading['ReadingID']]);
+            } else {
+                // Insert new reading with default values for other sensors
+                $defaults = ['SoilMoisture' => 0, 'Temperature' => 0, 'Humidity' => 0];
+                $defaults[$column] = $value;
+                
+                $stmt = $pdo->prepare("
+                    INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+                    VALUES (?, ?, ?, ?, 0, ?)
+                ");
+                $stmt->execute([$plantId, $defaults['SoilMoisture'], $defaults['Temperature'], $defaults['Humidity'], $philippineTime]);
             }
             
             error_log("storeSensorReading: Successfully logged {$sensorType} = {$value}{$unit}");
@@ -177,11 +207,11 @@ class ArduinoBridge
             // Update sensor last reading time and status
             $updateStmt = $pdo->prepare("
                 UPDATE sensors 
-                SET last_reading_at = NOW(), status = 'online' 
+                SET last_reading_at = ?, status = 'online' 
                 WHERE id = ?
             ");
             
-            if (!$updateStmt->execute([$sensorId])) {
+            if (!$updateStmt->execute([$philippineTime, $sensorId])) {
                 throw new Exception("Failed to update sensor status");
             }
             
@@ -193,6 +223,20 @@ class ArduinoBridge
         } catch (Exception $e) {
             error_log("Failed to store sensor reading: " . $e->getMessage());
             return false;
+        }
+    }
+    
+    /**
+     * Get active plant ID from activeplant table
+     */
+    private function getActivePlantId($pdo)
+    {
+        try {
+            $stmt = $pdo->query("SELECT SelectedPlantID FROM activeplant ORDER BY UpdatedAt DESC LIMIT 1");
+            $result = $stmt->fetch();
+            return $result ? $result['SelectedPlantID'] : 1;
+        } catch (Exception $e) {
+            return 1; // Default to plant ID 1
         }
     }
 
@@ -207,15 +251,14 @@ class ArduinoBridge
             // Get logging interval from settings (in minutes)
             $interval = $this->getLoggingInterval();
             
-            // Get last reading time for this sensor using MySQL's time functions
+            // Get last reading time from sensorreadings table
             $stmt = $pdo->prepare("
                 SELECT 
-                    MAX(recorded_at) as last_reading,
-                    TIMESTAMPDIFF(SECOND, MAX(recorded_at), NOW()) as seconds_passed
-                FROM sensor_readings 
-                WHERE sensor_id = ?
+                    MAX(ReadingTime) as last_reading,
+                    TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed
+                FROM sensorreadings
             ");
-            $stmt->execute([$sensorId]);
+            $stmt->execute();
             $result = $stmt->fetch();
             
             // If no previous reading, allow logging
@@ -488,6 +531,7 @@ class ArduinoBridge
 
     /**
      * Sync all Arduino data to database
+     * Saves ALL sensors in ONE row to ensure data consistency
      */
     public function syncToDatabase()
     {
@@ -496,17 +540,45 @@ class ArduinoBridge
             return false;
         }
 
-        $synced = 0;
-        foreach ($sensorData as $sensorType => $data) {
-            if (isset($data['value']) && $data['value'] !== null) {
-                $unit = $this->getUnit($sensorType);
-                if ($this->storeSensorReading($sensorType, $data['value'], $unit)) {
-                    $synced++;
-                }
-            }
+        // Check if we should log based on interval (check once for all sensors)
+        $sensorId = $this->getOrCreateSensor('temperature'); // Use any sensor for interval check
+        if (!$this->shouldLogReading($sensorId)) {
+            error_log("syncToDatabase: Skipping - interval not reached");
+            return 0;
         }
 
-        return $synced;
+        // Extract all sensor values
+        $temperature = isset($sensorData['temperature']['value']) ? floatval($sensorData['temperature']['value']) : 0;
+        $humidity = isset($sensorData['humidity']['value']) ? floatval($sensorData['humidity']['value']) : 0;
+        $soilMoisture = isset($sensorData['soil_moisture']['value']) ? floatval($sensorData['soil_moisture']['value']) : 0;
+
+        try {
+            $pdo = getDatabaseConnection();
+            
+            // Get active plant ID
+            $plantId = $this->getActivePlantId($pdo);
+            
+            // Use PHP date() to ensure correct Philippine timezone
+            $philippineTime = date('Y-m-d H:i:s');
+            
+            // Insert ALL sensor values in ONE row
+            $stmt = $pdo->prepare("
+                INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
+                VALUES (?, ?, ?, ?, 0, ?)
+            ");
+            $stmt->execute([$plantId, $soilMoisture, $temperature, $humidity, $philippineTime]);
+            
+            // Update all sensor statuses
+            $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")
+                ->execute([$philippineTime]);
+            
+            error_log("syncToDatabase: Saved all sensors - Temp={$temperature}, Hum={$humidity}, Soil={$soilMoisture}");
+            return 3; // All 3 sensors saved
+            
+        } catch (Exception $e) {
+            error_log("syncToDatabase error: " . $e->getMessage());
+            return 0;
+        }
     }
 
     /**

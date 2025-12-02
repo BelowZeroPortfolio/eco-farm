@@ -110,18 +110,21 @@ try {
         exit;
     }
     
-    // Check interval
+    // Check interval using PHP time comparison (avoids MySQL timezone issues)
     $stmt = $pdo->prepare("SELECT setting_value FROM user_settings WHERE setting_key = 'sensor_logging_interval' LIMIT 1");
     $stmt->execute();
     $result = $stmt->fetch();
     $intervalMinutes = $result ? floatval($result['setting_value']) : 30;
     
-    $stmt = $pdo->query("SELECT TIMESTAMPDIFF(SECOND, MAX(ReadingTime), NOW()) as seconds_passed FROM sensorreadings");
+    $stmt = $pdo->query("SELECT MAX(ReadingTime) as last_reading FROM sensorreadings");
     $result = $stmt->fetch();
     
-    $secondsPassed = $result && $result['seconds_passed'] !== null ? intval($result['seconds_passed']) : 999999;
-    $intervalSeconds = $intervalMinutes * 60;
-    $shouldLog = $secondsPassed >= ($intervalSeconds - 1);
+    $shouldLog = true;
+    if ($result && $result['last_reading']) {
+        $lastReadingTime = strtotime($result['last_reading']);
+        $secondsPassed = time() - $lastReadingTime;
+        $shouldLog = $secondsPassed >= ($intervalMinutes * 60 - 1);
+    }
     
     if (!$shouldLog) {
         echo json_encode([
@@ -163,20 +166,24 @@ try {
         exit;
     }
     
+    // Use PHP date() to ensure correct Philippine timezone
+    $philippineTime = date('Y-m-d H:i:s');
+    
     // Insert into sensorreadings table
     $stmt = $pdo->prepare("
         INSERT INTO sensorreadings (PlantID, SoilMoisture, Temperature, Humidity, WarningLevel, ReadingTime) 
-        VALUES (?, ?, ?, ?, 0, NOW())
+        VALUES (?, ?, ?, ?, 0, ?)
     ");
     $stmt->execute([
         $plantId,
         $soilMoisture ?? 0,
         $temperature ?? 0,
-        $humidity ?? 0
+        $humidity ?? 0,
+        $philippineTime
     ]);
     
     // Update sensor statuses
-    $pdo->exec("UPDATE sensors SET last_reading_at = NOW(), status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')");
+    $pdo->prepare("UPDATE sensors SET last_reading_at = ?, status = 'online' WHERE sensor_type IN ('temperature', 'humidity', 'soil_moisture')")->execute([$philippineTime]);
     
     echo json_encode([
         'success' => true,
